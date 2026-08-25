@@ -1,0 +1,5 @@
+/build/
+/local.mk
+/demo/__pycache__/
+/demo/.ipynb_checkpoints/
+*.pyc
