@@ -1,4 +1,7 @@
 /build/
+/.ipcache/
+/analyzer_input/
+/xcd.log
 /local.mk
 /demo/__pycache__/
 /demo/.ipynb_checkpoints/
