@@ -47,17 +47,25 @@ PROFILE_ARGS := \
 HLS_SOURCES := $(wildcard $(SOURCE_DIR)/*.hpp) $(SOURCE_DIR)/attention_kernel.cpp
 TCL_SOURCES := $(wildcard $(TCL_DIR)/*.tcl)
 
-.PHONY: all hls demo clean $(BUILD_SENTINEL) $(DEMO_XCLBIN)
+.PHONY: all hls demo clean prepare-build-dir $(DEMO_XCLBIN)
 
 all: $(XCLBIN)
 
 hls: $(XO)
 
-$(BUILD_SENTINEL):
-	mkdir -p "$(BUILD_DIR)"
-	printf '%s\n' "$(BUILD_SENTINEL_CONTENT)" > "$@"
+prepare-build-dir:
+	test "$(BUILD_DIR_ABS)" != "/" || { echo "refusing to use filesystem root as BUILD_DIR" >&2; exit 2; }
+	test "$(BUILD_DIR_ABS)" != "$(abspath $(CURDIR))" || { echo "refusing to use repository root as BUILD_DIR" >&2; exit 2; }
+	if [[ -e "$(BUILD_DIR)" ]]; then
+	  test -d "$(BUILD_DIR)" || { echo "refusing non-directory BUILD_DIR: $(BUILD_DIR)" >&2; exit 2; }
+	  test -f "$(BUILD_SENTINEL)" || { echo "refusing sentinel-less build directory: $(BUILD_DIR)" >&2; exit 2; }
+	  test "$$(cat "$(BUILD_SENTINEL)")" = "$(BUILD_SENTINEL_CONTENT)" || { echo "refusing build directory with a foreign sentinel: $(BUILD_DIR)" >&2; exit 2; }
+	else
+	  mkdir -p "$(BUILD_DIR)"
+	  printf '%s\n' "$(BUILD_SENTINEL_CONTENT)" > "$(BUILD_SENTINEL)"
+	fi
 
-$(XO): $(HLS_SOURCES) Makefile $(BUILD_SENTINEL)
+$(XO): $(HLS_SOURCES) Makefile | prepare-build-dir
 	if [[ -n "$(VITIS_SETUP)" ]]; then source "$(VITIS_SETUP)"; fi
 	mkdir -p "$(BUILD_DIR)" "$(TEMP_DIR)/compile" "$(LOG_DIR)/compile" "$(REPORT_DIR)/compile"
 	v++ -c -t hw \
@@ -73,7 +81,7 @@ $(XO): $(HLS_SOURCES) Makefile $(BUILD_SENTINEL)
 	  -o "$@" \
 	  "$(SOURCE_DIR)/attention_kernel.cpp"
 
-$(ROUTE_STAMP): $(XO) Makefile $(BUILD_SENTINEL) $(SOURCE_DIR)/link.cfg $(TCL_SOURCES)
+$(ROUTE_STAMP): $(XO) Makefile $(SOURCE_DIR)/link.cfg $(TCL_SOURCES) | prepare-build-dir
 	if [[ -n "$(VITIS_SETUP)" ]]; then source "$(VITIS_SETUP)"; fi
 	mkdir -p "$(TEMP_DIR)/link" "$(LOG_DIR)/link" "$(REPORT_DIR)/link"
 	KERNEL_FREQUENCY_MHZ="$(KERNEL_FREQ_MHZ)" \
@@ -95,7 +103,7 @@ $(ROUTE_STAMP): $(XO) Makefile $(BUILD_SENTINEL) $(SOURCE_DIR)/link.cfg $(TCL_SO
 	  "$(XO)"
 	touch "$@"
 
-$(XCLBIN): $(ROUTE_STAMP)
+$(XCLBIN): $(ROUTE_STAMP) | prepare-build-dir
 	if [[ -n "$(VITIS_SETUP)" ]]; then source "$(VITIS_SETUP)"; fi
 	KERNEL_FREQUENCY_MHZ="$(KERNEL_FREQ_MHZ)" \
 	FPT26_VITIS_BUILD_DIR="$(BUILD_DIR)" \
