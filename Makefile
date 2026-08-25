@@ -14,7 +14,14 @@ PYTHON ?= python3
 MODEL_DIR ?=
 DEVICE ?= 0
 BUILD_DIR ?= $(CURDIR)/build
+XCLBIN_WAS_SET := $(if $(filter undefined,$(origin XCLBIN)),0,1)
 XCLBIN ?= $(BUILD_DIR)/llama3_fast_attention.hw.xclbin
+
+RELEASE_TAG := v1.0.0
+RELEASE_ASSET := BRISK-U50-v1.0.0.hw.xclbin
+RELEASE_XCLBIN := $(BUILD_DIR)/$(RELEASE_ASSET)
+RELEASE_URL := https://github.com/vic9112/BRISK/releases/download/$(RELEASE_TAG)/$(RELEASE_ASSET)
+RELEASE_SHA256 := d928f26881fe59588ff7481f0945fcd857a276dffbe6b0f5dbfd12690de44ded
 
 SOURCE_DIR := $(CURDIR)/source
 TCL_DIR := $(SOURCE_DIR)/tcl
@@ -23,7 +30,6 @@ BUILD_SENTINEL := $(BUILD_DIR)/.brisk-build-owner
 BUILD_SENTINEL_CONTENT := BRISK_BUILD_OWNER=$(abspath $(CURDIR));BUILD_DIR=$(BUILD_DIR_ABS)
 XO := $(BUILD_DIR)/llama3_fast_attention.xo
 ROUTE_STAMP := $(BUILD_DIR)/.route-complete
-DEMO_XCLBIN := $(BUILD_DIR)/.demo-xclbin-ready
 TEMP_DIR := $(BUILD_DIR)/temp
 LOG_DIR := $(BUILD_DIR)/logs
 REPORT_DIR := $(BUILD_DIR)/reports
@@ -47,7 +53,7 @@ PROFILE_ARGS := \
 HLS_SOURCES := $(wildcard $(SOURCE_DIR)/*.hpp) $(SOURCE_DIR)/attention_kernel.cpp
 TCL_SOURCES := $(wildcard $(TCL_DIR)/*.tcl)
 
-.PHONY: all hls demo clean prepare-build-dir $(DEMO_XCLBIN)
+.PHONY: all hls demo clean prepare-build-dir
 
 all: $(XCLBIN)
 
@@ -124,15 +130,36 @@ $(XCLBIN): $(ROUTE_STAMP) | prepare-build-dir
 	  "$(XO)"
 	test -s "$@"
 
-$(DEMO_XCLBIN):
-	test -f "$(XCLBIN)" || { echo "local demo xclbin not found: $(XCLBIN); build it with 'make' or set XCLBIN to a local artifact" >&2; exit 2; }
-
-demo: $(DEMO_XCLBIN)
+demo: prepare-build-dir
 	test -n "$(MODEL_DIR)" || { echo "MODEL_DIR must point to local Llama3-8B weights" >&2; exit 2; }
+	demo_xclbin="$(XCLBIN)"
+	if [[ ! -f "$$demo_xclbin" ]]; then
+	  if [[ "$(XCLBIN_WAS_SET)" = "1" ]]; then
+	    echo "explicit XCLBIN not found: $$demo_xclbin" >&2
+	    exit 2
+	  fi
+	  demo_xclbin="$(RELEASE_XCLBIN)"
+	  if [[ ! -f "$$demo_xclbin" ]]; then
+	    tmp="$$(mktemp "$(BUILD_DIR)/.$(RELEASE_ASSET).XXXXXX")"
+	    trap 'rm -f -- "$$tmp"' EXIT
+	    if command -v curl >/dev/null 2>&1; then
+	      curl -fL --retry 3 -o "$$tmp" "$(RELEASE_URL)"
+	    elif command -v wget >/dev/null 2>&1; then
+	      wget -O "$$tmp" "$(RELEASE_URL)"
+	    else
+	      echo "make demo requires curl or wget to fetch $(RELEASE_ASSET)" >&2
+	      exit 127
+	    fi
+	    printf '%s  %s\n' "$(RELEASE_SHA256)" "$$tmp" | sha256sum -c -
+	    mv -- "$$tmp" "$$demo_xclbin"
+	    trap - EXIT
+	  fi
+	  printf '%s  %s\n' "$(RELEASE_SHA256)" "$$demo_xclbin" | sha256sum -c -
+	fi
 	if [[ -n "$(XRT_SETUP)" ]]; then source "$(XRT_SETUP)"; fi
 	cd demo
 	FPT26_MODEL_DIR="$(MODEL_DIR)" \
-	FPT26_XCLBIN="$(XCLBIN)" \
+	FPT26_XCLBIN="$$demo_xclbin" \
 	FPT26_DEVICE="$(DEVICE)" \
 	"$(PYTHON)" -m jupyter lab demo.ipynb
 
