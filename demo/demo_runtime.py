@@ -160,7 +160,7 @@ def preflight(config: DemoConfig, *, check_hardware: bool = True) -> dict[str, s
     try:
         torch = importlib.import_module("torch")
     except ImportError as exc:
-        raise DemoConfigurationError("PyTorch is not installed; install requirements.txt") from exc
+        raise DemoConfigurationError("PyTorch is not installed; install requirements.md") from exc
     if not torch.cuda.is_available():
         raise DemoConfigurationError("CUDA is unavailable; Pure RTX 5090 cannot run")
     gpu_name = str(torch.cuda.get_device_name(0))
