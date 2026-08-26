@@ -2,12 +2,6 @@
 
 BRISK — *Bypassing Repeated I/O via Single-Owner K/V Residency for Llama 3 Attention on FPGA* — is a memory-first Alveo U50 implementation of exact dense causal grouped-query attention. It keeps BF16 tensor boundaries, FP32 internal arithmetic, true exponential, and online softmax while retaining repeated K/V state at one authoritative hardware owner.
 
-## Award
-
-| Competition | Track | Result |
-| --- | --- | --- |
-| FPT'26 Design Competition | Track B | First Prize |
-
 ## Quick start
 
 ```bash
