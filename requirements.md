@@ -1,157 +1,135 @@
 # BRISK requirements
 
-## Supported operating environment
+## Environment
 
-| Requirement | Qualified environment |
+| Requirement | Supported baseline or obligation |
 | --- | --- |
-| Host operating system | Linux supported by AMD Vitis and AMD XRT |
-| Hardware build tools | AMD Vitis and Vivado 2025.2 with `v++` available |
-| Runtime used for qualification | AMD XRT 2.18.179 with Python `pyxrt` |
-| FPGA platform | `xilinx_u50_gen3x16_xdma_5_202210_1` |
-| FPGA device | Xilinx Alveo U50 selected by `DEVICE` |
-| GPU used by the live comparison | NVIDIA GeForce RTX 5090 visible to PyTorch CUDA |
-| Python packages | `jupyter`, `ipywidgets`, `numpy`, `torch`, `transformers`, and `pyxrt`; official Meta checkpoints also require `fairscale`, `tiktoken`, and the sibling `llama` source package |
+| Host | Little-endian Linux supported by AMD Vitis and XRT, with access to the selected U50 device. |
+| Build tools | AMD Vitis and Vivado 2025.2; `v++` must be available. |
+| FPGA runtime | AMD XRT 2.18.179 with compatible Python `pyxrt` and matching loaded `xclmgmt`/`xocl` drivers. |
+| FPGA platform | `xilinx_u50_gen3x16_xdma_5_202210_1`. |
+| GPU comparison | NVIDIA GeForce RTX 5090 visible to PyTorch CUDA. |
+| Python runtime | An environment containing `numpy`, CUDA-enabled `torch`, `transformers`, `ipywidgets` and `pyxrt`. |
+| Headless notebook execution | Also requires `nbformat`, `nbclient`, `IPython`, `ipykernel` and a working `python3` Jupyter kernel. It does not require JupyterLab. |
+| Official Meta checkpoint support | Also requires `fairscale`, `tiktoken` and the compatible official `llama` source package. |
+| Notebook execution | `make demo` uses the headless notebook runner; JupyterLab is optional for interactive viewing. |
+| Local storage | Writable space for HLS/co-simulation products, routed implementation, reports and local model material. Build products remain ignored by Git. |
 
-## Local Llama model
+Activate the installed tool environments before running Make. Alternatively, pass setup-script paths through `VITIS_SETUP` and `XRT_SETUP`. These variables are optional when the shell is already configured; they are not paths to bundled tools.
 
-The demo uses local model material and does not download weights.
-
-| Model format | Local requirement |
+| Make input | Meaning or default |
 | --- | --- |
-| Hugging Face Llama3-8B | A local directory with `config.json`, compatible model weights, and tokenizer material |
-| Official Meta Llama3-8B | A local directory with `params.json`, `consolidated.00.pth`, and `tokenizer.model`, plus a sibling official `llama` source package |
-| Attention geometry | 32 query heads, 8 K/V heads, and 128 dimensions per head |
-| Public prompt envelope | Batch 1 with an active sequence from 1 through 8 tokens |
+| `MODEL_DIR` | Existing local model directory; required for the demo. |
+| `XCLBIN` | Explicit existing artifact, or the default `build/llama3_fast_attention.hw.xclbin` when not supplied. |
+| `DEVICE` | XRT device index; default `0`. |
+| `PLATFORM` | Installed U50 platform named above. |
+| `HLS_FREQ_MHZ` | HLS scheduling target; default `220` MHz, not an achieved-frequency claim. |
+| `KERNEL_FREQ_MHZ` | Link/implementation clock target and expected qualification clock; default `220` MHz. |
+| `ROUTED_CLOCK_REPORT` | Matching routed timing summary for the selected artifact, required by notebook execution and device qualification. The default dedicated report path is listed in the source guide; supply the matching report for an external artifact whose report is elsewhere. |
+| `PYTHON` | Python interpreter used for the demo and helper scripts. |
+| `JOBS` | Build parallelism supported by the local machine. |
+| `BUILD_DIR` | Generated build/report directory; default `build/`. |
 
-## Release artifact identity
+No model-weight or release-artifact download is part of these commands. A missing explicitly selected artifact is an error, not a fallback request.
 
-| Release field | Qualified value |
+Build products are incremental and do not track command-line platform or clock changes. Use a fresh `BUILD_DIR`, or clean the existing build directory before changing `PLATFORM`, `HLS_FREQ_MHZ` or `KERNEL_FREQ_MHZ`. The supplied routed report and expected clock must belong to the artifact being executed or qualified.
+
+The notebook runner accepts `--routed-clock-report`, otherwise uses `ROUTED_CLOCK_REPORT` when supplied. Its remaining default is the dedicated routed timing report under the selected xclbin's parent directory. The standard Make build supplies this evidence without an additional demo argument.
+
+| Clock semantic | Required role |
 | --- | --- |
-| GitHub release | `vic9112/BRISK`, tag `v1.0.0` |
-| Asset | `BRISK-U50-v1.0.0.hw.xclbin` |
-| Size | 50,176,274 bytes |
-| SHA-256 | `d928f26881fe59588ff7481f0945fcd857a276dffbe6b0f5dbfd12690de44ded` |
-| Platform VBNV | `xilinx_u50_gen3x16_xdma_5_202210_1` |
-| xclbin UUID | `3a241b4c-830e-1d8c-b01b-a0883977d31f` |
-| Static interface UUID | `16e2362f-82d2-feab-3552-9da27134b76d` |
-| Packaged kernels | 1 |
-| DATA clock | 220 MHz |
-| HBM clock | 400 MHz |
+| `DATA` | `kernel00` clock. |
+| `KERNEL` | `kernel01` clock. |
+| `SYSTEM` | Single system/HBM clock. |
 
-## Ordered kernel ABI
+Before notebook startup or device programming, the runner checks the artifact's declared clock topology against its matching routed timing contract. After image loading, it samples physical clocks before the actual callback and again afterward. The effective clocks must satisfy the bound routed contract; requested targets or metadata values alone do not establish the device's operating clocks.
 
-The release exposes the `llama3_fast_attention` kernel with this ordered ABI. Buffer groups and HBM mapping are defined by `source/link.cfg`.
+### Version-bound HBM clock handling
+
+The supported runtime has a narrowly verified SYSTEM/HBM request mapping. It is not a general clock-rounding rule and does not change the routed timing contract.
+
+| Scope or clock quantity | Supported rule or requirement |
+| --- | --- |
+| Applicable runtime | XRT `2.18.179` with matching loaded `xclmgmt` and `xocl` drivers. |
+| Applicable clock | SYSTEM/HBM only; no inferred rounding for DATA or KERNEL. |
+| Routed effective HBM requirement | `400` MHz. |
+| Covered HBM metadata-request interval | `[400,405)` MHz, including a `402` MHz request. |
+| Version-bound effective selection | Requests in that interval select the `400` MHz HBM setting on the supported runtime. |
+| Physical validation | All `3` clock counters are mandatory before kernel execution; effective clocks must match the routed contract. |
+
+A raw metadata request can therefore differ from the selected effective HBM setting. The mapping does not establish a physical measurement: actual DATA, KERNEL and SYSTEM counters must still be available and checked before launching attention. No wider tolerance, other request bucket or other runtime version is implied.
+
+## Local model material
+
+| Model format | Required local material |
+| --- | --- |
+| Hugging Face Llama3-8B | A directory containing `config.json`, compatible local weights and tokenizer material. Loading uses local files only. |
+| Official Meta Llama3-8B | A directory containing `params.json`, `consolidated.00.pth` and `tokenizer.model`; the compatible `llama` Python package is its sibling. |
+| Official package contents | The sibling `llama` package supplies `__init__.py`, `generation.py`, `model.py` and `tokenizer.py`. |
+| Device-qualification input | `demo/qualify_u50.py` currently uses official Meta checkpoint material and its sibling `llama` source package. Notebook support for Hugging Face does not imply qualification-script support for that format. |
+| Attention geometry | Query heads: `32`; K/V heads: `8`; head dimension: `128`. |
+| Notebook prompt envelope | Batch `1`; active sequence from `1` through `8` tokens. Longer prompts are limited to the supported active token count by the demo runtime. |
+
+The notebook derives attention inputs from the local model. It is an attention-boundary demonstration, not an end-to-end text-generation or full-model throughput measurement.
+
+## Kernel boundary and ABI
+
+The [kernel specification](spec/llama3_fast_attention.md) is the detailed contract. [Public declarations](spec/brisk_types.hpp) preserve the ordered callable below; [connectivity](source/link.cfg) supplies the memory-bank mapping.
 
 | Index | Argument | Kind |
 | ---: | --- | --- |
-| 0 | `q0` | BF16 query buffer |
-| 1 | `q1` | BF16 query buffer |
-| 2 | `q2` | BF16 query buffer |
-| 3 | `q3` | BF16 query buffer |
-| 4 | `active_kv` | BF16 paired active key/value buffer |
-| 5 | `cache_kv0` | Persistent key/value cache buffer |
-| 6 | `cache_kv1` | Persistent key/value cache buffer |
-| 7 | `cache_kv2` | Persistent key/value cache buffer |
-| 8 | `cache_kv3` | Persistent key/value cache buffer |
-| 9 | `out0` | BF16 output buffer |
-| 10 | `out1` | BF16 output buffer |
-| 11 | `out2` | BF16 output buffer |
-| 12 | `out3` | BF16 output buffer |
-| 13 | `batch_size` | Scalar integer |
-| 14 | `seqlen` | Scalar integer |
-| 15 | `start_pos` | Scalar integer |
-| 16 | `cache_stride` | Scalar integer |
-| 17 | `cache_valid_len` | Scalar integer |
-| 18 | `mask_mode` | Scalar integer |
-| 19 | `flags` | Scalar integer |
-| 20 | `cache_identity` | Scalar integer |
-| 21 | `status_out` | Scalar-status output buffer |
-
-## Semantic boundary
+| 0 | `q0` | Packed BF16 query input. |
+| 1 | `q1` | Packed BF16 query input. |
+| 2 | `q2` | Packed BF16 query input. |
+| 3 | `q3` | Packed BF16 query input. |
+| 4 | `active_kv` | Packed paired incoming K/V input. |
+| 5 | `cache_kv0` | Persistent backing-memory region. |
+| 6 | `cache_kv1` | Persistent backing-memory region. |
+| 7 | `cache_kv2` | Persistent backing-memory region. |
+| 8 | `cache_kv3` | Persistent backing-memory region. |
+| 9 | `out0` | Packed BF16 output. |
+| 10 | `out1` | Packed BF16 output. |
+| 11 | `out2` | Packed BF16 output. |
+| 12 | `out3` | Packed BF16 output. |
+| 13 | `batch_size` | Signed integer control. |
+| 14 | `seqlen` | Signed integer control. |
+| 15 | `start_pos` | Signed integer control. |
+| 16 | `cache_stride` | Signed integer control. |
+| 17 | `cache_valid_len` | Signed integer control. |
+| 18 | `mask_mode` | Signed integer control. |
+| 19 | `flags` | Signed integer control. |
+| 20 | `cache_identity` | Signed identity encoding. |
+| 21 | `status_out` | Status output buffer. |
 
 | Boundary | Contract |
 | --- | --- |
-| Input | Post-RoPE BF16 query, key, and value tensors for dense causal grouped-query attention |
-| Arithmetic | FP32 scoring, true exponential, online softmax recurrence, and value accumulation |
-| Cache ownership | Kernel-owned append and versioned authoritative K/V residency, with exact raw-HBM fallback for a nonresident identity |
-| Output | BF16 pre-output-projection attention context plus a status code |
-| Excluded substitutions | No approximation, pruning, sparsity, quantization, or reduced internal precision |
-| Demo comparison | Same prompt-derived first-layer boundary on RTX 5090 and U50; host invocation and device timing scopes remain separate |
+| Inputs | Post-RoPE BF16 Q/K/V for dense causal grouped-query attention. |
+| Arithmetic | FP32 QK products/reductions, standard exponential, online normalization, weighted-value updates and final division. |
+| Output | BF16 attention context before output projection, using round-to-nearest, ties-to-even. |
+| K/V authority | Lane-local resident owner; exact-tag resident selection, nonallocating history fallback and completed live-victim writeback before slot reuse. |
+| Fresh sequence | An accepted `start_pos=0` retires the selected layer's old logical sequence and clears its resident tags before installation, including unchanged identity reuse. Invalid calls do not retire state. |
+| Continuation | Serialized, append-only calls with stable live identity, batch geometry, stride, backing addresses and earlier logical records. |
+| Exclusions | No record dropping, sparse/approximate attention, approximate exponential, BF16 score/probability rounding or reduced internal precision. |
+| Caller duties | Valid pointer extents, alignment and disjointness; supported finite inference domain; distinct backing records for concurrently live layers. |
 
-## Routed implementation
-
-| Routed completion metric | Value |
-| --- | ---: |
-| Kernel period | 4.545 ns |
-| Kernel frequency | 220 MHz |
-| Whole-design setup WNS / TNS | 0.000 ns / 0.000 ns |
-| Whole-design hold WHS / THS | 0.000 ns / 0.000 ns |
-| Failed / partially routed / unrouted nets | 0 / 0 / 0 |
-| Bus-skew constraints passed | 225 / 225 |
-| Minimum bus-skew slack | 1.832 ns |
-
-| Whole routed device resource | Used | Available | Utilization |
-| --- | ---: | ---: | ---: |
-| CLB LUTs | 360,600 | 870,720 | 41.41% |
-| CLB registers | 552,120 | 1,741,440 | 31.70% |
-| Block RAM tiles | 800 | 1,344 | 59.52% |
-| URAM | 164 | 640 | 25.63% |
-| DSP48E2 | 1,805 | 5,952 | 30.33% |
-| CLBs | 85,685 | 108,840 | 78.73% |
-
-| Routed SLR resource | SLR0 used | SLR0 utilization | SLR1 used | SLR1 utilization |
-| --- | ---: | ---: | ---: | ---: |
-| CLBs | 47,962 | 87.27% | 37,723 | 69.86% |
-| CLB LUTs | 201,857 | 45.91% | 158,743 | 36.75% |
-| CLB registers | 333,684 | 37.95% | 218,436 | 25.28% |
-| Block RAM tiles | 441 | 65.63% | 359 | 53.42% |
-| URAM | 84 | 26.25% | 80 | 25.00% |
-| DSPs | 921 | 31.98% | 884 | 28.78% |
-
-## Fresh board qualification
-
-| Correctness or ownership gate | Qualified shape | Calls or identities | Maximum absolute error | Threshold | Status / numerical / nonfinite violations |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Base prefill and decode continuation | Batch 1, sequence 8 at position 0; sequence 1 at positions 8 through 18 | 12 calls | Within BF16 gate | 0.0625 | 0 / 0 / 0 |
-| 32-layer incremental continuation | Batch 1, 8 tokens, chunk 1, 32 layers | 256 calls | 0.015625 | 0.0625 | 0 / 0 / 0 |
-| Public prompt-derived first-layer Attention | Batch 1, original 32-layer Llama3-8B, 4 prompt tokens | 1 prompt | 0.00048828125 | 0.125 | 0 / 0 / 0 |
-| Device-active captured-tensor profile | Batch 2, sequence 8 at position 0; sequence 1 at positions 8 through 18 | 360 samples | 0.000977 | Absolute 0.0625 and relative 0.08 | 0 / 0 / 0 |
-
-| Cache identity gate | Identities | Historical HBM reads | HBM writes | Cold-fallback HBM reads | Mismatches |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Resident prefill and poison-backed decode | 32 | 0 bytes | 0 bytes | 0 bytes | 0 |
-| Different-identity fallback after poison | 1 | Not resident | 0 bytes | 32,768 bytes in 512 transactions | 0 |
-
-| Device-active profile method | Value |
-| --- | ---: |
-| Warm-up chains | 5 |
-| Measured launches per workload | 30 |
-| Workloads | 12 |
-| Total measured launches | 360 |
-
-Device-active latency is derived only from XRT ERT command-state `RUNNING` and `COMPLETED` timestamps. Host launch-to-completion is reported separately.
-
-| Mode | Batch | Sequence | Start position | Samples | Device-active mean | Device-active minimum | Device-active maximum | Launch-to-completion mean |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Prefill | 2 | 8 | 0 | 30 | 39.231 us | 33.913 us | 41.460 us | 107.376 us |
-| Decode | 2 | 1 | 8 | 30 | 31.043 us | 29.981 us | 31.825 us | 55.278 us |
-| Decode | 2 | 1 | 9 | 30 | 31.272 us | 30.065 us | 33.759 us | 51.659 us |
-| Decode | 2 | 1 | 10 | 30 | 31.402 us | 30.201 us | 32.885 us | 61.574 us |
-| Decode | 2 | 1 | 11 | 30 | 31.226 us | 29.665 us | 33.066 us | 80.145 us |
-| Decode | 2 | 1 | 12 | 30 | 31.418 us | 30.699 us | 33.133 us | 130.832 us |
-| Decode | 2 | 1 | 13 | 30 | 31.368 us | 30.299 us | 33.085 us | 126.221 us |
-| Decode | 2 | 1 | 14 | 30 | 31.284 us | 29.750 us | 33.166 us | 111.221 us |
-| Decode | 2 | 1 | 15 | 30 | 31.256 us | 30.305 us | 32.166 us | 49.610 us |
-| Decode | 2 | 1 | 16 | 30 | 31.221 us | 29.181 us | 33.739 us | 77.707 us |
-| Decode | 2 | 1 | 17 | 30 | 31.093 us | 30.419 us | 31.949 us | 46.869 us |
-| Decode | 2 | 1 | 18 | 30 | 31.393 us | 30.040 us | 38.206 us | 83.247 us |
-
-## Build and demo storage
-
-| Location or behavior | Requirement |
+| Geometry or control | Supported value |
 | --- | --- |
-| `build/` | Generated Vitis products, qualification output, logs, downloaded release artifact, and reports; ignored by Git |
-| Local override | Optional untracked `local.mk` or command-line Make variables |
-| Default demo artifact order | Existing local `build/llama3_fast_attention.hw.xclbin`, then the checked GitHub release asset |
-| Explicit demo artifact | `XCLBIN=/path/to/file.hw.xclbin`; a missing explicit path fails without downloading another file |
-| Release integrity gate | SHA-256 must match before the xclbin is passed to the notebook |
+| Layers / lanes | `32` layers; `4` lanes. |
+| Query/K/V heads per lane | `8` query heads and `2` K/V heads. |
+| Batch / host sequence / local tile | Batch `1`–`2`; host sequence up to `8192`; local tile up to `16` new rows. |
+| Residency | `40` positions per layer, shared equally across active batches. |
+| Identity | Signed `32`-bit ABI; low `5` bits select the layer and high `27` bits encode the epoch; negative encodings are legal. |
+| Paper-conforming flags | `0`. |
+
+## Numerical and timing interpretation
+
+| Comparison | Required interpretation |
+| --- | --- |
+| General output acceptance | Actual and reference values are finite, with `abs(O-O_ref) <= max(0.0625,0.08*max(abs(O_ref),1e-6))`. The reference is independent FP32 dense causal attention from BF16 inputs, rounded to BF16 at output. |
+| Exact analytic cases | Require their independently calculated BF16 encodings in addition to applicable general checks. |
+| Notebook ratio | GPU host-observed attention invocation through CUDA completion divided by U50 submission through XRT wait. |
+| CUDA-event diagnostic | Report separately; never mix with the notebook host-envelope ratio. |
+| Device qualification | Use the matched Accelerator Monitor (AM)/CUDA-graph procedure in `demo/qualify_u50.py`, separately from notebook timing. Its GPU baseline is unfused FP32 dense operators, not optimized SDPA or FlashAttention. |
+| Excluded timing work | Projection, RoPE, output projection and host tensor transfers are outside the attention-only device-active boundary. |
+
+These are requirements and measurement definitions, not current timing, resource-utilization or board-success results. Build and co-simulation reports cannot substitute for actual notebook execution or device qualification on the selected artifact.
