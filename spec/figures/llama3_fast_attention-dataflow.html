@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<!-- Layout primitives adapted under the following license:
+MIT License
+
+Copyright (c) 2025 Cathryn Lavery
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>BRISK root dataflow</title>
+<style>
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+:root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#bf4520; --font-sans:'Geist',system-ui,sans-serif; --font-serif:'Instrument Serif','Noto Serif',serif; --font-mono:'Geist Mono',ui-monospace,monospace; }
+body { background:var(--color-paper); color:var(--color-ink); font-family:var(--font-sans); padding:32px; }
+.frame { width:100%; max-width:1280px; min-width:0; margin:auto; }
+.diagram-container { width:100%; overflow-x:auto; }
+svg { width:100%; min-width:1280px; display:block; }
+svg text { fill:#2d3142; font-family:var(--font-sans); }
+.name { font-size:12px; font-weight:600; }
+.sub { font-size:9px; font-family:var(--font-mono); fill:#4f5d75; }
+.label { font-size:8px; font-family:var(--font-mono); fill:#4f5d75; }
+.title { font-size:28px; font-family:var(--font-serif); }
+.note { font-size:11px; fill:#4f5d75; }
+@media print { .diagram-container { overflow-x:visible; } svg { min-width:0; } }
+</style></head><body><div class="frame"><div class="diagram-container">
+<svg viewBox="0 0 1280 1200" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="llama3_fast_attention-dataflow-title llama3_fast_attention-dataflow-desc" data-hls-function="llama3_fast_attention" data-hls-figure="dataflow" >
+<title id="llama3_fast_attention-dataflow-title">BRISK root dataflow</title>
+<desc id="llama3_fast_attention-dataflow-desc">One resident decode streams selected history, installs and forwards the incoming record, and completes only after output and ownership effects.</desc>
+<!-- Layout primitives adapted under the following license:
+MIT License
+
+Copyright (c) 2025 Cathryn Lavery
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker>
+<marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#bf4520"/></marker>
+<marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#2e5aa8"/></marker>
+</defs><rect width="100%" height="100%" fill="#f5f5f5"/>
+<text x="40" y="64" class="title" text-anchor="start">Resident decode: history, incoming token, completion</text><text x="40" y="92" class="note" text-anchor="start">Representative lane and query head; logical message order, not cycles or a total hardware schedule.</text><line x1="160" y1="180" x2="160" y2="1072" stroke="#bfc0c0" stroke-dasharray="3,3"/><line x1="400" y1="180" x2="400" y2="1072" stroke="#bfc0c0" stroke-dasharray="3,3"/><line x1="640" y1="180" x2="640" y2="1072" stroke="#bfc0c0" stroke-dasharray="3,3"/><line x1="880" y1="180" x2="880" y2="1072" stroke="#bfc0c0" stroke-dasharray="3,3"/><line x1="1120" y1="180" x2="1120" y2="1072" stroke="#bfc0c0" stroke-dasharray="3,3"/><g data-hls-path="query_rep0" data-hls-producer="self" data-hls-consumer="score_lanes.q0" data-hls-datatype="brisk::QPair[4]"><line x1="160" y1="224" x2="640" y2="224" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="204" y="194" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="272" y="206" class="label" text-anchor="middle">Query pair</text></g><g data-hls-path="keys" data-hls-producer="kv_lanes.keys" data-hls-consumer="score_lanes.keys" data-hls-datatype="brisk::KChunk[4]"><line x1="400" y1="288" x2="640" y2="288" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="452" y="258" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="520" y="270" class="label" text-anchor="middle">Resident key</text></g><g data-hls-path="values" data-hls-producer="kv_lanes.values" data-hls-consumer="value_lanes.values" data-hls-datatype="brisk::VChunk[4]"><line x1="400" y1="352" x2="1120" y2="352" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="692" y="322" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="760" y="334" class="label" text-anchor="middle">Resident value</text></g><g data-hls-path="scores" data-hls-producer="score_lanes.scores" data-hls-consumer="normalizer.scores" data-hls-datatype="brisk::Score[4]"><line x1="640" y1="416" x2="880" y2="416" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="692" y="386" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="760" y="398" class="label" text-anchor="middle">FP32 score</text></g><g data-hls-path="scales" data-hls-producer="normalizer.scales" data-hls-consumer="value_lanes.scales" data-hls-datatype="brisk::Scale[4]"><line x1="880" y1="480" x2="1120" y2="480" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="932" y="450" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="1000" y="462" class="label" text-anchor="middle">Online factors</text></g><text x="40" y="528" class="note" text-anchor="start">History precedes incoming positions. Value and score paths may overlap; each associated factor must be available before its update.</text><g data-hls-path="incoming_records" data-hls-producer="self" data-hls-consumer="kv_lanes.incoming" data-hls-datatype="cache_line_t[4]"><line x1="160" y1="568" x2="400" y2="568" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="212" y="538" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="280" y="550" class="label" text-anchor="middle">Incoming K/V</text></g><g data-hls-path="keys" data-hls-producer="kv_lanes.keys" data-hls-consumer="score_lanes.keys" data-hls-datatype="brisk::KChunk[4]"><line x1="400" y1="632" x2="640" y2="632" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="452" y="602" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="520" y="614" class="label" text-anchor="middle">Install + key</text></g><g data-hls-path="values" data-hls-producer="kv_lanes.values" data-hls-consumer="value_lanes.values" data-hls-datatype="brisk::VChunk[4]"><line x1="400" y1="696" x2="1120" y2="696" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="692" y="666" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="760" y="678" class="label" text-anchor="middle">Forward value</text></g><g data-hls-path="scores" data-hls-producer="score_lanes.scores" data-hls-consumer="normalizer.scores" data-hls-datatype="brisk::Score[4]"><line x1="640" y1="760" x2="880" y2="760" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="692" y="730" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="760" y="742" class="label" text-anchor="middle">Current score</text></g><g data-hls-path="scales" data-hls-producer="normalizer.scales" data-hls-consumer="value_lanes.scales" data-hls-datatype="brisk::Scale[4]"><line x1="880" y1="824" x2="1120" y2="824" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="932" y="794" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="1000" y="806" class="label" text-anchor="middle">Current factors</text></g><g data-hls-path="denominators" data-hls-producer="normalizer.denominators" data-hls-consumer="value_lanes.denominators" data-hls-datatype="brisk::Denominator[4]"><line x1="880" y1="888" x2="1120" y2="888" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/><rect x="932" y="858" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="1000" y="870" class="label" text-anchor="middle">Final sums</text></g><g data-hls-path="output_words" data-hls-producer="value_lanes.output" data-hls-consumer="self" data-hls-datatype="qo_pack_t[4]"><line x1="1120" y1="1000" x2="160" y2="1000" stroke="#bf4520" stroke-width="1.2" marker-end="url(#arrow-accent)"/><rect x="692" y="970" width="136" height="16" rx="2" fill="#f5f5f5"/><text x="760" y="982" class="label" text-anchor="middle">BF16 output</text></g><g><rect x="72" y="116" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/><text x="160" y="146" class="name" text-anchor="middle">llama3_fast_attention</text><text x="160" y="164" class="sub" text-anchor="middle">validate / pack / store</text></g><g><rect x="312" y="116" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/><text x="400" y="146" class="name" text-anchor="middle">serve_kv</text><text x="400" y="164" class="sub" text-anchor="middle">direct child</text></g><g><rect x="552" y="116" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/><text x="640" y="146" class="name" text-anchor="middle">score_queries</text><text x="640" y="164" class="sub" text-anchor="middle">direct child</text></g><g><rect x="792" y="116" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/><text x="880" y="146" class="name" text-anchor="middle">normalize_scores</text><text x="880" y="164" class="sub" text-anchor="middle">direct child</text></g><g><rect x="1032" y="116" width="176" height="64" rx="8" fill="#ffffff" stroke="#2d3142"/><text x="1120" y="146" class="name" text-anchor="middle">accumulate_values</text><text x="1120" y="164" class="sub" text-anchor="middle">direct child</text></g><text x="40" y="1064" class="note" text-anchor="start">Return waits for output stores and required K/V ownership effects; resident K/V remains owned by serve_kv.</text><line x1="40" y1="1120" x2="1240" y2="1120" stroke="#bfc0c0"/><text x="40" y="1152" class="note" text-anchor="start">Scenario: earlier records hit in URAM. Overflow and invalid-control branches are specified separately.</text>
+</svg></div></div></body></html>
+

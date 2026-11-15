@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<!-- Diagram Design: retained MIT-licensed template conventions. -->
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>llama3_fast_attention: task architecture</title>
+<style>
+* { box-sizing:border-box; }
+:root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#bf4520; --font-sans:'Geist',system-ui,sans-serif; --font-serif:'Instrument Serif','Noto Serif',serif; --font-mono:'Geist Mono',ui-monospace,monospace; }
+body { margin:0; padding:32px; background:var(--color-paper); color:var(--color-ink); font-family:var(--font-sans); }
+.frame { width:100%; max-width:1600px; min-width:0; margin:auto; }
+.diagram-container { width:100%; overflow-x:auto; }
+svg { width:100%; min-width:2660px; display:block; }
+svg text { fill:var(--color-ink); font-family:var(--font-sans); font-size:12px; }
+.title { font-family:var(--font-serif); font-size:28px; }
+.heading { font-size:14px; font-weight:600; }
+.mono { font-family:var(--font-mono); font-size:12px; }
+.small { font-family:var(--font-mono); font-size:9px; fill:var(--color-muted); }
+.note { font-size:11px; fill:var(--color-muted); }
+@media print { .diagram-container { overflow-x:visible; } svg { min-width:0; } body { padding:0; } }
+</style></head><body><main class="frame"><div class="diagram-container">
+<svg viewBox="0 0 2660 1800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="llama3_fast_attention-architecture-title llama3_fast_attention-architecture-desc" data-hls-function="llama3_fast_attention" data-hls-figure="architecture" data-grammar="architecture-containment">
+<title id="llama3_fast_attention-architecture-title">llama3_fast_attention: task architecture</title>
+<desc id="llama3_fast_attention-architecture-desc">Root-owned validation, query distribution and output draining connect the four direct task groups through the complete local transfer inventory and named public ports.</desc>
+<!-- MIT License
+Copyright (c) 2025 Cathryn Lavery
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE. -->
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker>
+<marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon points="0 0,8 3,0 6" fill="#bf4520"/></marker>
+<marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon points="0 0,8 3,0 6" fill="#2e5aa8"/></marker>
+</defs>
+<rect x="0" y="0" width="2660" height="1800" fill="#f5f5f5"/>
+<text x="40" y="64" class="title">llama3_fast_attention: task architecture</text>
+<g data-hls-boundary="llama3_fast_attention"><rect x="240" y="120" width="2200" height="1540" rx="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds" data-scope-id="scope-llama3_fast_attention" data-scope-kind="traffic"/>
+<text x="264" y="152" class="heading">llama3_fast_attention</text><text x="264" y="172" class="note">Functional/task ownership; not an implied RTL partition or cycle schedule</text></g>
+<g data-hls-path="query_rep0" data-hls-producer="self" data-hls-consumer="score_lanes.q0" data-hls-datatype="brisk::QPair[4]">
+<g data-hls-path="query_rep1" data-hls-producer="self" data-hls-consumer="score_lanes.q1" data-hls-datatype="brisk::QPair[4]">
+<g data-hls-path="query_rep2" data-hls-producer="self" data-hls-consumer="score_lanes.q2" data-hls-datatype="brisk::QPair[4]">
+<g data-hls-path="query_rep3" data-hls-producer="self" data-hls-consumer="score_lanes.q3" data-hls-datatype="brisk::QPair[4]">
+<path d="M 448 240 V 208 Q 448 200 456 200 H 1592 Q 1600 200 1600 208 V 360" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="888" y="160" width="440" height="32" rx="2" fill="#f5f5f5"/><text x="896" y="172" class="mono">query_rep0 / query_rep1 / query_rep2 / query_rep3</text><text x="896" y="188" class="small">brisk::QPair[4] each · configured depth 8 each</text>
+</g></g></g></g>
+<g data-hls-path="keys" data-hls-producer="kv_lanes.keys" data-hls-consumer="score_lanes.keys" data-hls-datatype="brisk::KChunk[4]">
+<path d="M 800 520 V 472 Q 800 464 808 464 H 1480" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="968" y="424" width="360" height="32" rx="2" fill="#f5f5f5"/><text x="976" y="436" class="mono">keys</text><text x="976" y="452" class="small">brisk::KChunk[4] · configured depth 4</text>
+</g>
+<g data-hls-path="values" data-hls-producer="kv_lanes.values" data-hls-consumer="value_lanes.values" data-hls-datatype="brisk::VChunk[4]">
+<path d="M 880 1040 V 1096 Q 880 1104 888 1104 H 1592 a 8 8 0 0 1 16 0 H 2112 Q 2120 1104 2120 1112 V 1180" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="992" y="1064" width="380" height="32" rx="2" fill="#f5f5f5"/><text x="1000" y="1076" class="mono">values</text><text x="1000" y="1092" class="small">brisk::VChunk[4] · configured depth 128</text>
+</g>
+<g data-hls-path="scores" data-hls-producer="score_lanes.scores" data-hls-consumer="normalizer.scores" data-hls-datatype="brisk::Score[4]">
+<path d="M 1600 520 V 1180" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1608" y="1028" width="300" height="32" rx="2" fill="#f5f5f5"/><text x="1616" y="1040" class="mono">scores</text><text x="1616" y="1056" class="small">brisk::Score[4] · configured depth 8</text>
+</g>
+<g data-hls-path="scales" data-hls-producer="normalizer.scales" data-hls-consumer="value_lanes.scales" data-hls-datatype="brisk::Scale[4]">
+<path d="M 1720 1248 H 2000" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1756" y="1208" width="184" height="32" rx="2" fill="#f5f5f5"/><text x="1764" y="1220" class="mono">scales · cfg depth 64</text><text x="1764" y="1236" class="small">brisk::Scale[4]</text>
+</g>
+<g data-hls-path="denominators" data-hls-producer="normalizer.denominators" data-hls-consumer="value_lanes.denominators" data-hls-datatype="brisk::Denominator[4]">
+<path d="M 1720 1296 H 2000" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1756" y="1256" width="184" height="32" rx="2" fill="#f5f5f5"/><text x="1764" y="1268" class="mono">denominators · cfg 32</text><text x="1764" y="1284" class="small">brisk::Denominator[4]</text>
+</g>
+<g data-hls-path="output_words" data-hls-producer="value_lanes.output" data-hls-consumer="self" data-hls-datatype="qo_pack_t[4]">
+<path d="M 2160 1340 V 1368 Q 2160 1376 2152 1376 H 456" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="992" y="1336" width="340" height="32" rx="2" fill="#f5f5f5"/><text x="1000" y="1348" class="mono">output_words</text><text x="1000" y="1364" class="small">qo_pack_t[4] · configured depth 64</text>
+</g>
+<g data-hls-path="incoming_records" data-hls-producer="self" data-hls-consumer="kv_lanes.incoming" data-hls-datatype="cache_line_t[4]">
+<path d="M 456 560 H 680" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="472" y="520" width="184" height="32" rx="2" fill="#f5f5f5"/><text x="480" y="532" class="mono">incoming_records</text><text x="480" y="548" class="small">cache_line_t[4] · cfg 16</text>
+</g>
+<g data-hls-path="query_0" data-hls-producer="self.q0" data-hls-consumer="self" data-hls-datatype="qo_pack_t">
+<path d="M 240 280 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="296" y="256" width="104" height="16" rx="2" fill="#f5f5f5"/><text x="304" y="268" class="mono">query_0</text>
+</g>
+<g data-hls-path="output_0" data-hls-producer="self" data-hls-consumer="self.out0" data-hls-datatype="qo_pack_t">
+<path d="M 456 1408 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="1384" width="240" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="1396" class="mono">output_0 · qo_pack_t</text>
+</g>
+<g data-hls-path="backing_0" data-hls-producer="self.cache_kv0" data-hls-consumer="kv_lanes.backing" data-hls-datatype="cache_line_t *">
+<path d="M 2440 560 H 1608 a 8 8 0 0 0 -16 0 H 920" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="536" width="300" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="548" class="mono">backing_0 · cache_line_t *</text>
+</g>
+<g data-hls-path="backing_commit_0" data-hls-producer="kv_lanes.backing" data-hls-consumer="self.cache_kv0" data-hls-datatype="cache_line_t *">
+<path d="M 920 608 H 1592 a 8 8 0 0 1 16 0 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="584" width="360" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="596" class="mono">backing_commit_0 · cache_line_t *</text>
+</g>
+<g data-hls-path="query_1" data-hls-producer="self.q1" data-hls-consumer="self" data-hls-datatype="qo_pack_t">
+<path d="M 240 328 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="296" y="304" width="104" height="16" rx="2" fill="#f5f5f5"/><text x="304" y="316" class="mono">query_1</text>
+</g>
+<g data-hls-path="output_1" data-hls-producer="self" data-hls-consumer="self.out1" data-hls-datatype="qo_pack_t">
+<path d="M 456 1448 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="1424" width="240" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="1436" class="mono">output_1 · qo_pack_t</text>
+</g>
+<g data-hls-path="backing_1" data-hls-producer="self.cache_kv1" data-hls-consumer="kv_lanes.backing" data-hls-datatype="cache_line_t *">
+<path d="M 2440 688 H 1608 a 8 8 0 0 0 -16 0 H 920" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="664" width="300" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="676" class="mono">backing_1 · cache_line_t *</text>
+</g>
+<g data-hls-path="backing_commit_1" data-hls-producer="kv_lanes.backing" data-hls-consumer="self.cache_kv1" data-hls-datatype="cache_line_t *">
+<path d="M 920 736 H 1592 a 8 8 0 0 1 16 0 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="712" width="360" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="724" class="mono">backing_commit_1 · cache_line_t *</text>
+</g>
+<g data-hls-path="query_2" data-hls-producer="self.q2" data-hls-consumer="self" data-hls-datatype="qo_pack_t">
+<path d="M 240 376 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="296" y="352" width="104" height="16" rx="2" fill="#f5f5f5"/><text x="304" y="364" class="mono">query_2</text>
+</g>
+<g data-hls-path="output_2" data-hls-producer="self" data-hls-consumer="self.out2" data-hls-datatype="qo_pack_t">
+<path d="M 456 1488 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="1464" width="240" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="1476" class="mono">output_2 · qo_pack_t</text>
+</g>
+<g data-hls-path="backing_2" data-hls-producer="self.cache_kv2" data-hls-consumer="kv_lanes.backing" data-hls-datatype="cache_line_t *">
+<path d="M 2440 816 H 1608 a 8 8 0 0 0 -16 0 H 920" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="792" width="300" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="804" class="mono">backing_2 · cache_line_t *</text>
+</g>
+<g data-hls-path="backing_commit_2" data-hls-producer="kv_lanes.backing" data-hls-consumer="self.cache_kv2" data-hls-datatype="cache_line_t *">
+<path d="M 920 864 H 1592 a 8 8 0 0 1 16 0 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="840" width="360" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="852" class="mono">backing_commit_2 · cache_line_t *</text>
+</g>
+<g data-hls-path="query_3" data-hls-producer="self.q3" data-hls-consumer="self" data-hls-datatype="qo_pack_t">
+<path d="M 240 424 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="296" y="400" width="104" height="16" rx="2" fill="#f5f5f5"/><text x="304" y="412" class="mono">query_3</text>
+</g>
+<g data-hls-path="output_3" data-hls-producer="self" data-hls-consumer="self.out3" data-hls-datatype="qo_pack_t">
+<path d="M 456 1528 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="1504" width="240" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="1516" class="mono">output_3 · qo_pack_t</text>
+</g>
+<g data-hls-path="backing_3" data-hls-producer="self.cache_kv3" data-hls-consumer="kv_lanes.backing" data-hls-datatype="cache_line_t *">
+<path d="M 2440 944 H 1608 a 8 8 0 0 0 -16 0 H 920" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="920" width="300" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="932" class="mono">backing_3 · cache_line_t *</text>
+</g>
+<g data-hls-path="backing_commit_3" data-hls-producer="kv_lanes.backing" data-hls-consumer="self.cache_kv3" data-hls-datatype="cache_line_t *">
+<path d="M 920 992 H 1592 a 8 8 0 0 1 16 0 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="1848" y="968" width="360" height="16" rx="2" fill="#f5f5f5"/><text x="1856" y="980" class="mono">backing_commit_3 · cache_line_t *</text>
+</g>
+<g data-hls-path="active_records" data-hls-producer="self.active_kv" data-hls-consumer="self" data-hls-datatype="kv_pair_pack_t">
+<path d="M 240 472 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="272" y="448" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="280" y="460" class="mono">active_records</text>
+</g>
+<g data-hls-path="control_batch_size" data-hls-producer="self.batch_size" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1080 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1056" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1068" class="mono">control_batch_size</text>
+</g>
+<g data-hls-path="control_seqlen" data-hls-producer="self.seqlen" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1128 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1104" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1116" class="mono">control_seqlen</text>
+</g>
+<g data-hls-path="control_start_pos" data-hls-producer="self.start_pos" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1176 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1152" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1164" class="mono">control_start_pos</text>
+</g>
+<g data-hls-path="control_cache_stride" data-hls-producer="self.cache_stride" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1224 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1200" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1212" class="mono">control_cache_stride</text>
+</g>
+<g data-hls-path="control_cache_valid_len" data-hls-producer="self.cache_valid_len" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1272 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1248" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1260" class="mono">control_cache_valid_len</text>
+</g>
+<g data-hls-path="control_mask_mode" data-hls-producer="self.mask_mode" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1320 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1296" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1308" class="mono">control_mask_mode</text>
+</g>
+<g data-hls-path="control_flags" data-hls-producer="self.flags" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1368 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1344" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1356" class="mono">control_flags</text>
+</g>
+<g data-hls-path="control_cache_identity" data-hls-producer="self.cache_identity" data-hls-consumer="self" data-hls-datatype="int">
+<path d="M 240 1416 H 440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="256" y="1392" width="176" height="16" rx="2" fill="#f5f5f5"/><text x="264" y="1404" class="mono">control_cache_identity</text>
+</g>
+<g data-hls-path="status" data-hls-producer="self" data-hls-consumer="self.status_out" data-hls-datatype="int">
+<path d="M 456 1592 H 2440" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="1568" width="184" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="1580" class="mono">status · int</text>
+</g>
+<g data-hls-path="request_kv_lanes" data-hls-producer="self" data-hls-consumer="kv_lanes.request" data-hls-datatype="brisk::TileRequest">
+<path d="M 456 608 H 680" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="472" y="584" width="184" height="16" rx="2" fill="#f5f5f5"/><text x="480" y="596" class="mono">request_kv_lanes</text>
+</g>
+<g data-hls-path="request_score_lanes" data-hls-producer="self" data-hls-consumer="score_lanes.request" data-hls-datatype="brisk::TileRequest">
+<path d="M 456 312 H 1352 Q 1360 312 1360 320 V 408 Q 1360 416 1368 416 H 1480" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="288" width="400" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="300" class="mono">request_score_lanes · brisk::TileRequest</text>
+</g>
+<g data-hls-path="request_normalizer" data-hls-producer="self" data-hls-consumer="normalizer.request" data-hls-datatype="brisk::TileRequest">
+<path d="M 456 1200 H 1480" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="912" y="1176" width="400" height="16" rx="2" fill="#f5f5f5"/><text x="920" y="1188" class="mono">request_normalizer · brisk::TileRequest</text>
+</g>
+<g data-hls-path="request_value_lanes" data-hls-producer="self" data-hls-consumer="value_lanes.request" data-hls-datatype="brisk::TileRequest">
+<path d="M 456 1128 H 1592 a 8 8 0 0 1 16 0 H 1952 Q 1960 1128 1960 1136 V 1216 Q 1960 1224 1968 1224 H 2000" fill="none" stroke="#4f5d75" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="792" y="1136" width="400" height="16" rx="2" fill="#f5f5f5"/><text x="800" y="1148" class="mono">request_value_lanes · brisk::TileRequest</text>
+</g>
+<g data-hls-endpoint="self" data-node-id="root-local-junction" data-kind="compute" data-parent="scope-llama3_fast_attention"><rect x="440" y="240" width="16" height="1384" rx="4" fill="#e9edf2" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="480" y="264" class="heading">self · root-owned routing</text>
+<text x="480" y="284" class="note">Validation · query fanout · output drain</text>
+</g>
+<g data-hls-use="kv_lanes" data-node-id="node-kv_lanes" data-kind="compute" data-parent="scope-llama3_fast_attention"><rect x="680" y="520" width="240" height="520" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.5" data-role="bounds"/>
+<text x="800.0" y="752.0" class="heading" text-anchor="middle">serve_kv</text>
+<text x="800.0" y="772.0" class="mono" text-anchor="middle">kv_lanes</text>
+<text x="800.0" y="800.0" class="note" text-anchor="middle">Four independent lanes</text>
+<text x="800.0" y="820.0" class="note" text-anchor="middle">Resident payload + source tags</text>
+<text x="800.0" y="840.0" class="note" text-anchor="middle">Backing reads / victim commits</text>
+</g>
+<g data-hls-use="score_lanes" data-node-id="node-score_lanes" data-kind="compute" data-parent="scope-llama3_fast_attention"><rect x="1480" y="360" width="240" height="160" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.5" data-role="bounds"/>
+<text x="1600.0" y="412.0" class="heading" text-anchor="middle">score_queries</text>
+<text x="1600.0" y="432.0" class="mono" text-anchor="middle">score_lanes</text>
+<text x="1600.0" y="460.0" class="note" text-anchor="middle">Four independent lanes</text>
+<text x="1600.0" y="480.0" class="note" text-anchor="middle">Call-local query / QK state</text>
+</g>
+<g data-hls-use="normalizer" data-node-id="node-normalizer" data-kind="compute" data-parent="scope-llama3_fast_attention"><rect x="1480" y="1180" width="240" height="160" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.5" data-role="bounds"/>
+<text x="1600.0" y="1232.0" class="heading" text-anchor="middle">normalize_scores</text>
+<text x="1600.0" y="1252.0" class="mono" text-anchor="middle">normalizer</text>
+<text x="1600.0" y="1280.0" class="note" text-anchor="middle">One configured use</text>
+<text x="1600.0" y="1300.0" class="note" text-anchor="middle">Call-local maxima / sums</text>
+</g>
+<g data-hls-use="value_lanes" data-node-id="node-value_lanes" data-kind="compute" data-parent="scope-llama3_fast_attention"><rect x="2000" y="1180" width="240" height="160" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.5" data-role="bounds"/>
+<text x="2120.0" y="1232.0" class="heading" text-anchor="middle">accumulate_values</text>
+<text x="2120.0" y="1252.0" class="mono" text-anchor="middle">value_lanes</text>
+<text x="2120.0" y="1280.0" class="note" text-anchor="middle">Four independent lanes</text>
+<text x="2120.0" y="1300.0" class="note" text-anchor="middle">Call-local SV accumulators</text>
+</g>
+<g data-hls-port="q0"><rect x="236" y="276" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="300" class="mono" text-anchor="start">q0</text>
+</g>
+<g data-hls-public="q0">
+<path d="M 64 280 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="256" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="268" class="mono">q0</text>
+</g>
+<g data-hls-port="q1"><rect x="236" y="324" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="348" class="mono" text-anchor="start">q1</text>
+</g>
+<g data-hls-public="q1">
+<path d="M 64 328 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="304" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="316" class="mono">q1</text>
+</g>
+<g data-hls-port="q2"><rect x="236" y="372" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="396" class="mono" text-anchor="start">q2</text>
+</g>
+<g data-hls-public="q2">
+<path d="M 64 376 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="352" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="364" class="mono">q2</text>
+</g>
+<g data-hls-port="q3"><rect x="236" y="420" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="444" class="mono" text-anchor="start">q3</text>
+</g>
+<g data-hls-public="q3">
+<path d="M 64 424 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="400" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="412" class="mono">q3</text>
+</g>
+<g data-hls-port="active_kv"><rect x="236" y="468" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="492" class="mono" text-anchor="start">active_kv</text>
+</g>
+<g data-hls-public="active_kv">
+<path d="M 64 472 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="448" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="460" class="mono">active_kv</text>
+</g>
+<g data-hls-port="batch_size"><rect x="236" y="1076" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1100" class="mono" text-anchor="start">batch_size</text>
+</g>
+<g data-hls-public="batch_size">
+<path d="M 64 1080 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1056" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1068" class="mono">batch_size</text>
+</g>
+<g data-hls-port="seqlen"><rect x="236" y="1124" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1148" class="mono" text-anchor="start">seqlen</text>
+</g>
+<g data-hls-public="seqlen">
+<path d="M 64 1128 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1104" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1116" class="mono">seqlen</text>
+</g>
+<g data-hls-port="start_pos"><rect x="236" y="1172" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1196" class="mono" text-anchor="start">start_pos</text>
+</g>
+<g data-hls-public="start_pos">
+<path d="M 64 1176 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1152" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1164" class="mono">start_pos</text>
+</g>
+<g data-hls-port="cache_stride"><rect x="236" y="1220" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1244" class="mono" text-anchor="start">cache_stride</text>
+</g>
+<g data-hls-public="cache_stride">
+<path d="M 64 1224 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1200" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1212" class="mono">cache_stride</text>
+</g>
+<g data-hls-port="cache_valid_len"><rect x="236" y="1268" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1292" class="mono" text-anchor="start">cache_valid_len</text>
+</g>
+<g data-hls-public="cache_valid_len">
+<path d="M 64 1272 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1248" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1260" class="mono">cache_valid_len</text>
+</g>
+<g data-hls-port="mask_mode"><rect x="236" y="1316" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1340" class="mono" text-anchor="start">mask_mode</text>
+</g>
+<g data-hls-public="mask_mode">
+<path d="M 64 1320 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1296" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1308" class="mono">mask_mode</text>
+</g>
+<g data-hls-port="flags"><rect x="236" y="1364" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1388" class="mono" text-anchor="start">flags</text>
+</g>
+<g data-hls-public="flags">
+<path d="M 64 1368 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1344" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1356" class="mono">flags</text>
+</g>
+<g data-hls-port="cache_identity"><rect x="236" y="1412" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="256" y="1436" class="mono" text-anchor="start">cache_identity</text>
+</g>
+<g data-hls-public="cache_identity">
+<path d="M 64 1416 H 240" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="56" y="1392" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="64" y="1404" class="mono">cache_identity</text>
+</g>
+<g data-hls-port="cache_kv0"><rect x="2436" y="556" width="8" height="56" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="588" class="mono" text-anchor="end">cache_kv0</text>
+</g>
+<g data-hls-public="cache_kv0">
+<path d="M 2440 584 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)" marker-start="url(#arrow-link)"/>
+<rect x="2464" y="560" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="572" class="mono">cache_kv0</text>
+</g>
+<g data-hls-port="cache_kv1"><rect x="2436" y="684" width="8" height="56" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="716" class="mono" text-anchor="end">cache_kv1</text>
+</g>
+<g data-hls-public="cache_kv1">
+<path d="M 2440 712 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)" marker-start="url(#arrow-link)"/>
+<rect x="2464" y="688" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="700" class="mono">cache_kv1</text>
+</g>
+<g data-hls-port="cache_kv2"><rect x="2436" y="812" width="8" height="56" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="844" class="mono" text-anchor="end">cache_kv2</text>
+</g>
+<g data-hls-public="cache_kv2">
+<path d="M 2440 840 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)" marker-start="url(#arrow-link)"/>
+<rect x="2464" y="816" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="828" class="mono">cache_kv2</text>
+</g>
+<g data-hls-port="cache_kv3"><rect x="2436" y="940" width="8" height="56" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="972" class="mono" text-anchor="end">cache_kv3</text>
+</g>
+<g data-hls-public="cache_kv3">
+<path d="M 2440 968 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)" marker-start="url(#arrow-link)"/>
+<rect x="2464" y="944" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="956" class="mono">cache_kv3</text>
+</g>
+<g data-hls-port="out0"><rect x="2436" y="1404" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="1428" class="mono" text-anchor="end">out0</text>
+</g>
+<g data-hls-public="out0">
+<path d="M 2440 1408 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="2464" y="1384" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="1396" class="mono">out0</text>
+</g>
+<g data-hls-port="out1"><rect x="2436" y="1444" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="1468" class="mono" text-anchor="end">out1</text>
+</g>
+<g data-hls-public="out1">
+<path d="M 2440 1448 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="2464" y="1424" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="1436" class="mono">out1</text>
+</g>
+<g data-hls-port="out2"><rect x="2436" y="1484" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="1508" class="mono" text-anchor="end">out2</text>
+</g>
+<g data-hls-public="out2">
+<path d="M 2440 1488 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="2464" y="1464" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="1476" class="mono">out2</text>
+</g>
+<g data-hls-port="out3"><rect x="2436" y="1524" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="1548" class="mono" text-anchor="end">out3</text>
+</g>
+<g data-hls-public="out3">
+<path d="M 2440 1528 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="2464" y="1504" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="1516" class="mono">out3</text>
+</g>
+<g data-hls-port="status_out"><rect x="2436" y="1588" width="8" height="8" fill="#f5f5f5" stroke="#4f5d75" stroke-width="1.5" data-role="bounds"/>
+<text x="2424" y="1612" class="mono" text-anchor="end">status_out</text>
+</g>
+<g data-hls-public="status_out">
+<path d="M 2440 1592 H 2616" fill="none" stroke="#2e5aa8" stroke-width="1.5" marker-end="url(#arrow-link)"/>
+<rect x="2464" y="1568" width="152" height="16" rx="2" fill="#f5f5f5"/><text x="2472" y="1580" class="mono">status_out</text>
+</g>
+<line x1="40" y1="1696" x2="2620" y2="1696" stroke="#bfc0c0" stroke-width="1"/>
+<text x="40" y="1720" class="note">Named frame ports separate external IO from internal handoffs. Local junction ≠ child function. Hops mark crossings without a connection.</text>
+<text x="40" y="1740" class="note">FIFO depths shown are configured capacities, not proven minimum depths. Data types and multiplicity follow the local contract.</text>
+</svg></div></main></body></html>
