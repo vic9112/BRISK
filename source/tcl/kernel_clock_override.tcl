@@ -4,7 +4,7 @@
 # only repairs the generated-clock ratio when the platform helper emits 1:1
 # for a non-100-MHz request. The routed report remains the signoff authority.
 
-proc brisk_gcd {a b} {
+proc fpt26_gcd {a b} {
     while {$b != 0} {
         set remainder [expr {$a % $b}]
         set a $b
@@ -13,10 +13,16 @@ proc brisk_gcd {a b} {
     return $a
 }
 
-if {![info exists ::env(KERNEL_FREQUENCY_MHZ)]} {
-    error "BRISK clock hook requires KERNEL_FREQUENCY_MHZ from the Makefile"
+set typed_action_default_mhz 220
+if {[info exists ::env(KERNEL_FREQUENCY_MHZ)]} {
+    set requested_mhz [expr {int($::env(KERNEL_FREQUENCY_MHZ))}]
+} else {
+    # The v0.7.1 implementation.route materializer emits --kernel_frequency
+    # but does not expose descriptor environment bindings to Vivado callbacks.
+    # A repository contract test requires this fallback to equal the typed
+    # descriptor's kernel_clock_mhz.
+    set requested_mhz $typed_action_default_mhz
 }
-set requested_mhz [expr {int($::env(KERNEL_FREQUENCY_MHZ))}]
 
 if {$requested_mhz <= 0} {
     error "KERNEL_FREQUENCY_MHZ must be a positive integer"
@@ -35,7 +41,7 @@ if {[llength $source_clocks] != 1} {
 }
 set source_period_ns [get_property PERIOD [lindex $source_clocks 0]]
 set source_mhz [expr {int(round(1000.0 / $source_period_ns))}]
-set divisor [brisk_gcd $requested_mhz $source_mhz]
+set divisor [fpt26_gcd $requested_mhz $source_mhz]
 set multiply_by [expr {$requested_mhz / $divisor}]
 set divide_by [expr {$source_mhz / $divisor}]
 
@@ -58,5 +64,5 @@ if {abs($routed_constraint_period_ns - $expected_period_ns) > 0.001} {
         $expected_period_ns $routed_constraint_period_ns]
 }
 puts [format \
-    "BRISK kernel clock override: source %.3f ns, ratio %d/%d, requested %.3f ns" \
+    "FPT26 kernel clock override: source %.3f ns, ratio %d/%d, requested %.3f ns" \
     $source_period_ns $multiply_by $divide_by $expected_period_ns]

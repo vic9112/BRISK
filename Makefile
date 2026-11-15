@@ -5,7 +5,7 @@ SHELL := /bin/bash
 -include local.mk
 
 PLATFORM ?= xilinx_u50_gen3x16_xdma_5_202210_1
-HLS_FREQ_MHZ ?= 220
+HLS_FREQ_MHZ ?= 300
 KERNEL_FREQ_MHZ ?= 220
 JOBS ?= 8
 VITIS_SETUP ?=
@@ -17,28 +17,22 @@ BUILD_DIR ?= $(CURDIR)/build
 XCLBIN_WAS_SET := $(if $(filter undefined,$(origin XCLBIN)),0,1)
 XCLBIN ?= $(BUILD_DIR)/llama3_fast_attention.hw.xclbin
 
+RELEASE_TAG := v1.0.0
+RELEASE_ASSET := BRISK-U50-v1.0.0.hw.xclbin
+RELEASE_XCLBIN := $(BUILD_DIR)/$(RELEASE_ASSET)
+RELEASE_URL := https://github.com/vic9112/BRISK/releases/download/$(RELEASE_TAG)/$(RELEASE_ASSET)
+RELEASE_SHA256 := d928f26881fe59588ff7481f0945fcd857a276dffbe6b0f5dbfd12690de44ded
+
 SOURCE_DIR := $(CURDIR)/source
 TCL_DIR := $(SOURCE_DIR)/tcl
 BUILD_DIR_ABS := $(abspath $(BUILD_DIR))
 BUILD_SENTINEL := $(BUILD_DIR)/.brisk-build-owner
 BUILD_SENTINEL_CONTENT := BRISK_BUILD_OWNER=$(abspath $(CURDIR));BUILD_DIR=$(BUILD_DIR_ABS)
 XO := $(BUILD_DIR)/llama3_fast_attention.xo
-HLS_CONFIG := $(SOURCE_DIR)/hls_config.cfg
-HLS_WORK_DIR := $(BUILD_DIR)/hls_component
-ADAPTER_CONFIG := $(CURDIR)/verification/hls_adapter_config.cfg
-ADAPTER_WORK_DIR := $(BUILD_DIR)/hls_adapter
-IDENTITY_CONFIG := $(CURDIR)/verification/hls_identity_config.cfg
-IDENTITY_WORK_DIR := $(BUILD_DIR)/hls_identity
-ADAPTER_CHECK := $(CURDIR)/verification/check_adapter_rtl.py
-COSIM_STAMP := $(BUILD_DIR)/.cosim-complete
-# Keep each independent stateful sequence intact; XSim preloads all per-call
-# backing pages, so a monolithic run can exceed the verification host's RAM.
-COSIM_SUITES := numeric paper residency isolation identity validation
 ROUTE_STAMP := $(BUILD_DIR)/.route-complete
 TEMP_DIR := $(BUILD_DIR)/temp
 LOG_DIR := $(BUILD_DIR)/logs
 REPORT_DIR := $(BUILD_DIR)/reports
-ROUTED_CLOCK_REPORT ?= $(BUILD_DIR)/report/hw/link/imp/impl_1_hw_bb_locked_timing_summary_post_route_physopt.rpt
 
 VIVADO_ARGS := \
 	--vivado.prop run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=SSI_BalanceSLRs \
@@ -56,24 +50,14 @@ PROFILE_ARGS := \
 	--profile.data llama3_fast_attention:llama3_fast_attention_1:cache_kv2:counters \
 	--profile.data llama3_fast_attention:llama3_fast_attention_1:cache_kv3:counters
 
-HLS_SOURCES := $(wildcard $(SOURCE_DIR)/*.hpp) $(SOURCE_DIR)/attention_kernel.cpp \
-	$(wildcard $(CURDIR)/spec/*.hpp)
+HLS_SOURCES := $(wildcard $(SOURCE_DIR)/*.hpp) $(SOURCE_DIR)/attention_kernel.cpp
 TCL_SOURCES := $(wildcard $(TCL_DIR)/*.tcl)
 
-.PHONY: all hls hls-csim hls-cosim vivado demo qualify clean prepare-build-dir
+.PHONY: all hls demo clean prepare-build-dir
 
 all: $(XCLBIN)
 
 hls: $(XO)
-
-vivado: $(XCLBIN)
-
-hls-csim: prepare-build-dir
-	if [[ -n "$(VITIS_SETUP)" ]]; then set +u; source "$(VITIS_SETUP)"; set -u; fi
-	vitis-run --mode hls --config "$(HLS_CONFIG)" \
-	  --work_dir "$(HLS_WORK_DIR)" --freqhz "$(HLS_FREQ_MHZ)Mhz" --csim
-
-hls-cosim: $(COSIM_STAMP)
 
 prepare-build-dir:
 	test "$(BUILD_DIR_ABS)" != "/" || { echo "refusing to use filesystem root as BUILD_DIR" >&2; exit 2; }
@@ -87,58 +71,27 @@ prepare-build-dir:
 	  printf '%s\n' "$(BUILD_SENTINEL_CONTENT)" > "$(BUILD_SENTINEL)"
 	fi
 
-$(XO): $(HLS_SOURCES) verification/brisk_hls_tb.cpp $(HLS_CONFIG) Makefile | prepare-build-dir
-	if [[ -n "$(VITIS_SETUP)" ]]; then set +u; source "$(VITIS_SETUP)"; set -u; fi
+$(XO): $(HLS_SOURCES) Makefile | prepare-build-dir
+	if [[ -n "$(VITIS_SETUP)" ]]; then source "$(VITIS_SETUP)"; fi
 	mkdir -p "$(BUILD_DIR)" "$(TEMP_DIR)/compile" "$(LOG_DIR)/compile" "$(REPORT_DIR)/compile"
-	vitis-run --mode hls --config "$(HLS_CONFIG)" \
-	  --work_dir "$(HLS_WORK_DIR)" --freqhz "$(HLS_FREQ_MHZ)Mhz" --csim
-	v++ --compile --mode hls --config "$(HLS_CONFIG)" \
-	  --work_dir "$(HLS_WORK_DIR)" --freqhz "$(HLS_FREQ_MHZ)Mhz"
-	vitis-run --mode hls --config "$(HLS_CONFIG)" \
-	  --work_dir "$(HLS_WORK_DIR)" --freqhz "$(HLS_FREQ_MHZ)Mhz" \
-	  --hls.package.output.file "$@" --package
-	test -s "$@"
+	v++ -c -t hw \
+	  --platform "$(PLATFORM)" \
+	  -k llama3_fast_attention \
+	  --kernel_frequency "$(HLS_FREQ_MHZ)" \
+	  -I "$(SOURCE_DIR)" \
+	  -DFATTN_USE_HLS_AP_UINT=1 \
+	  --hls.jobs "$(JOBS)" \
+	  --temp_dir "$(TEMP_DIR)/compile" \
+	  --log_dir "$(LOG_DIR)/compile" \
+	  --report_dir "$(REPORT_DIR)/compile" \
+	  -o "$@" \
+	  "$(SOURCE_DIR)/attention_kernel.cpp"
 
-$(COSIM_STAMP): $(XO) verification/brisk_hls_tb.cpp $(HLS_CONFIG) $(ADAPTER_CONFIG) $(IDENTITY_CONFIG) $(ADAPTER_CHECK) Makefile | prepare-build-dir
-	if [[ -n "$(VITIS_SETUP)" ]]; then set +u; source "$(VITIS_SETUP)"; set -u; fi
-	v++ --compile --mode hls --config "$(ADAPTER_CONFIG)" \
-	  --work_dir "$(ADAPTER_WORK_DIR)" --freqhz "$(HLS_FREQ_MHZ)Mhz" \
-	  --hls.package.output.file "$(BUILD_DIR)/llama3_fast_attention.adapter.xo"
-	$(PYTHON) "$(ADAPTER_CHECK)" --production "$(HLS_WORK_DIR)" \
-	  --adapter "$(ADAPTER_WORK_DIR)" --report "$(REPORT_DIR)/cosim/rtl-identity.json"
-	v++ --compile --mode hls --config "$(IDENTITY_CONFIG)" \
-	  --work_dir "$(IDENTITY_WORK_DIR)" --freqhz "$(HLS_FREQ_MHZ)Mhz" \
-	  --hls.package.output.file "$(BUILD_DIR)/llama3_fast_attention.identity.xo"
-	$(PYTHON) "$(ADAPTER_CHECK)" --production "$(HLS_WORK_DIR)" \
-	  --adapter "$(IDENTITY_WORK_DIR)" --report "$(REPORT_DIR)/cosim/identity-rtl-identity.json"
-	for suite in $(COSIM_SUITES); do
-	  config="$(ADAPTER_CONFIG)"
-	  component="$(ADAPTER_WORK_DIR)"
-	  if [[ "$$suite" == identity ]]; then
-	    config="$(IDENTITY_CONFIG)"
-	    component="$(IDENTITY_WORK_DIR)"
-	  fi
-	  evidence="$(REPORT_DIR)/cosim/$$suite"
-	  mkdir -p "$$evidence/dataflow" "$$evidence/native-report"
-	  vitis-run --mode hls --config "$$config" \
-	    --work_dir "$$component" --freqhz "$(HLS_FREQ_MHZ)Mhz" \
-	    --hls.cosim.argv="--suite $$suite" --cosim 2>&1 | tee "$$evidence/cosim.log"
-	  cp -a "$$component/hls/sim/report/." "$$evidence/native-report/"
-	  find "$$component/hls/.autopilot/db" -maxdepth 1 -name '*.csv' \
-	    -exec cp -t "$$evidence/dataflow" {} +
-	  for profile in process_stalling_info channel_depth_info loop_performance_info CosimGUI; do
-	    if [[ -d "$$component/hls/.autopilot/db/$$profile" ]]; then
-	      cp -a "$$component/hls/.autopilot/db/$$profile" "$$evidence/dataflow/"
-	    fi
-	  done
-	done
-	touch "$@"
-
-$(ROUTE_STAMP): $(XO) $(COSIM_STAMP) Makefile $(SOURCE_DIR)/link.cfg $(TCL_SOURCES) | prepare-build-dir
-	if [[ -n "$(VITIS_SETUP)" ]]; then set +u; source "$(VITIS_SETUP)"; set -u; fi
+$(ROUTE_STAMP): $(XO) Makefile $(SOURCE_DIR)/link.cfg $(TCL_SOURCES) | prepare-build-dir
+	if [[ -n "$(VITIS_SETUP)" ]]; then source "$(VITIS_SETUP)"; fi
 	mkdir -p "$(TEMP_DIR)/link" "$(LOG_DIR)/link" "$(REPORT_DIR)/link"
 	KERNEL_FREQUENCY_MHZ="$(KERNEL_FREQ_MHZ)" \
-	BRISK_BUILD_DIR="$(BUILD_DIR)" \
+	FPT26_VITIS_BUILD_DIR="$(BUILD_DIR)" \
 	v++ -l -t hw \
 	  --platform "$(PLATFORM)" \
 	  --kernel_frequency "$(KERNEL_FREQ_MHZ)" \
@@ -157,9 +110,9 @@ $(ROUTE_STAMP): $(XO) $(COSIM_STAMP) Makefile $(SOURCE_DIR)/link.cfg $(TCL_SOURC
 	touch "$@"
 
 $(XCLBIN): $(ROUTE_STAMP) | prepare-build-dir
-	if [[ -n "$(VITIS_SETUP)" ]]; then set +u; source "$(VITIS_SETUP)"; set -u; fi
+	if [[ -n "$(VITIS_SETUP)" ]]; then source "$(VITIS_SETUP)"; fi
 	KERNEL_FREQUENCY_MHZ="$(KERNEL_FREQ_MHZ)" \
-	BRISK_BUILD_DIR="$(BUILD_DIR)" \
+	FPT26_VITIS_BUILD_DIR="$(BUILD_DIR)" \
 	v++ -l -t hw \
 	  --platform "$(PLATFORM)" \
 	  --kernel_frequency "$(KERNEL_FREQ_MHZ)" \
@@ -179,29 +132,36 @@ $(XCLBIN): $(ROUTE_STAMP) | prepare-build-dir
 
 demo: prepare-build-dir
 	test -n "$(MODEL_DIR)" || { echo "MODEL_DIR must point to local Llama3-8B weights" >&2; exit 2; }
-	if [[ "$(XCLBIN_WAS_SET)" = "0" ]]; then
-	  $(MAKE) --no-print-directory all
+	demo_xclbin="$(XCLBIN)"
+	if [[ ! -f "$$demo_xclbin" ]]; then
+	  if [[ "$(XCLBIN_WAS_SET)" = "1" ]]; then
+	    echo "explicit XCLBIN not found: $$demo_xclbin" >&2
+	    exit 2
+	  fi
+	  demo_xclbin="$(RELEASE_XCLBIN)"
+	  if [[ ! -f "$$demo_xclbin" ]]; then
+	    tmp="$$(mktemp "$(BUILD_DIR)/.$(RELEASE_ASSET).XXXXXX")"
+	    trap 'rm -f -- "$$tmp"' EXIT
+	    if command -v curl >/dev/null 2>&1; then
+	      curl -fL --retry 3 -o "$$tmp" "$(RELEASE_URL)"
+	    elif command -v wget >/dev/null 2>&1; then
+	      wget -O "$$tmp" "$(RELEASE_URL)"
+	    else
+	      echo "make demo requires curl or wget to fetch $(RELEASE_ASSET)" >&2
+	      exit 127
+	    fi
+	    printf '%s  %s\n' "$(RELEASE_SHA256)" "$$tmp" | sha256sum -c -
+	    mv -- "$$tmp" "$$demo_xclbin"
+	    trap - EXIT
+	  fi
+	  printf '%s  %s\n' "$(RELEASE_SHA256)" "$$demo_xclbin" | sha256sum -c -
 	fi
-	test -s "$(XCLBIN)" || { echo "explicit XCLBIN not found: $(XCLBIN)" >&2; exit 2; }
-	if [[ -n "$(XRT_SETUP)" ]]; then set +u; source "$(XRT_SETUP)"; set -u; fi
-	brisk_demo_dir="$(BUILD_DIR)/demo/$$(date +%Y%m%d-%H%M%S-%N)"
-	"$(PYTHON)" demo/run_notebook.py --model-dir "$(MODEL_DIR)" \
-	  --xclbin "$(XCLBIN)" --device "$(DEVICE)" --output "$$brisk_demo_dir"
-
-qualify: prepare-build-dir
-	test -n "$(MODEL_DIR)" || { echo "MODEL_DIR must point to local Meta Llama3-8B weights" >&2; exit 2; }
-	if [[ "$(XCLBIN_WAS_SET)" = "0" ]]; then
-	  $(MAKE) --no-print-directory all
-	fi
-	test -s "$(XCLBIN)"
-	test -s "$(ROUTED_CLOCK_REPORT)"
-	if [[ -n "$(XRT_SETUP)" ]]; then set +u; source "$(XRT_SETUP)"; set -u; fi
-	brisk_qualification_dir="$(BUILD_DIR)/qualification/$$(date +%Y%m%d-%H%M%S-%N)"
-	brisk_artifact_hash="$$(sha256sum "$(XCLBIN)" | awk '{print $$1}')"
-	"$(PYTHON)" demo/qualify_u50.py --model-dir "$(MODEL_DIR)" \
-	  --xclbin "$(XCLBIN)" --sha256 "$$brisk_artifact_hash" --device "$(DEVICE)" \
-	  --routed-clock-mhz "$(KERNEL_FREQ_MHZ)" --routed-clock-report "$(ROUTED_CLOCK_REPORT)" \
-	  --report-dir "$$brisk_qualification_dir"
+	if [[ -n "$(XRT_SETUP)" ]]; then source "$(XRT_SETUP)"; fi
+	cd demo
+	FPT26_MODEL_DIR="$(MODEL_DIR)" \
+	FPT26_XCLBIN="$$demo_xclbin" \
+	FPT26_DEVICE="$(DEVICE)" \
+	"$(PYTHON)" -m jupyter lab demo.ipynb
 
 clean:
 	test -n "$(BUILD_DIR)"

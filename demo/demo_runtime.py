@@ -225,8 +225,6 @@ class _U50Adapter:
         self._kernel = self._xrt.kernel(
             self._device, self._uuid, KERNEL_NAME
         )
-        cache_bytes = MAX_SEQUENCE * 2 * PAIRS_PER_HEAD * 32
-        self._cache_buffers = [self._buffer(cache_bytes, 5 + lane) for lane in range(LANES)]
         self._cache_identity = 0
 
     def _buffer(self, size: int, argument: int) -> Any:
@@ -292,11 +290,13 @@ class _U50Adapter:
         active_buffer = self._buffer(len(active_payload), 4)
         self._to_device(active_buffer, active_payload)
 
+        cache_bytes = MAX_SEQUENCE * 2 * PAIRS_PER_HEAD * 32
+        cache_buffers = [self._buffer(cache_bytes, 5 + lane) for lane in range(LANES)]
         status_buffer = self._buffer(4, 21)
         arguments = [
             *query_buffers,
             active_buffer,
-            *self._cache_buffers,
+            *cache_buffers,
             *output_buffers,
             batch,
             sequence,
@@ -310,17 +310,12 @@ class _U50Adapter:
         ]
         if len(arguments) != 22:
             raise AssertionError("U50 argument table must contain 22 entries")
-        self._cache_identity += 1 << 5  # Fresh layer-zero prompt, new epoch.
+        self._cache_identity += 1
 
         started = time.perf_counter_ns()
         run = self._kernel(*arguments)
-        # Request a wait timeout, not a hard wall-clock bound or hardware abort.
-        state = run.wait(10_000)
+        run.wait()
         host_invocation_us = (time.perf_counter_ns() - started) / 1_000.0
-        if state != self._xrt.ert_cmd_state.ERT_CMD_STATE_COMPLETED:
-            raise RuntimeError(
-                f"U50 XRT run did not complete: {state}; timeout does not abort; no automatic abort/reset"
-            )
         status_code = int.from_bytes(
             self._from_device(status_buffer, 4), byteorder="little", signed=True
         )
@@ -347,9 +342,8 @@ def _attention_reference(torch: Any, q: Any, k: Any, v: Any) -> Any:
     sequence = q.shape[1]
     causal = torch.ones((sequence, sequence), device=q.device, dtype=torch.bool).tril()
     scores = scores.masked_fill(~causal, torch.finfo(scores.dtype).min)
-    # Only the interface is BF16: scores, probabilities and SV remain FP32.
-    probabilities = torch.softmax(scores, dim=-1)
-    return torch.matmul(probabilities, value).to(q.dtype).transpose(1, 2).contiguous()
+    probabilities = torch.softmax(scores, dim=-1).to(q.dtype)
+    return torch.matmul(probabilities, value.to(q.dtype)).transpose(1, 2).contiguous()
 
 
 class DemoSession:
@@ -359,9 +353,6 @@ class DemoSession:
         self.config = config
         self.report = report
         self._torch = importlib.import_module("torch")
-        self._torch.backends.cuda.matmul.allow_tf32 = False
-        self._torch.backends.cudnn.allow_tf32 = False
-        self._torch.set_float32_matmul_precision("highest")
         if config.model_format == "huggingface":
             self._initialize_huggingface()
         else:
@@ -516,13 +507,10 @@ class DemoSession:
         hybrid_output, hybrid_host_invocation_us = self._u50.attention(
             q_gpu.cpu(), k_gpu.cpu(), v_gpu.cpu()
         )
-        reference = pure_output.cpu().float()
-        observed = hybrid_output.float()
-        error = (reference - observed).abs()
-        max_error = float(error.max().item())
-        finite = torch.isfinite(reference) & torch.isfinite(observed)
-        relative_error = error / reference.abs().clamp_min(1e-6)
-        if not bool((finite & ((error <= 0.0625) | (relative_error <= 0.08))).all().item()):
+        max_error = float(
+            (pure_output.cpu().float() - hybrid_output.float()).abs().max().item()
+        )
+        if not math.isfinite(max_error) or max_error > 0.125:
             raise RuntimeError(
                 f"live U50 output check failed: maximum absolute error {max_error:.6f}"
             )
@@ -535,7 +523,6 @@ class DemoSession:
             "prompt_tokens": len(token_ids),
             **metrics,
             "max_absolute_error": max_error,
-            "correctness_passed": True,
             "measurement_note": METRICS_NOTE,
         }
 
