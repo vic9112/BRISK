@@ -14,13 +14,13 @@
 #include <cstdint>
 #include <ap_int.h>
 #include <hls_stream.h>
-using bf16_t = std::uint16_t;
+using bf16_t = std::uint16_t;  // Raw BF16 bits at the tensor and retained-K/V boundaries.
 using kv_pack_t = ap_uint<128>;
 using kv_pair_pack_t = ap_uint<256>;
 using qo_pack_t = ap_uint<256>;
 using cache_line_t = ap_uint<512>;
 using kv_credit_t = ap_uint<1>;
-constexpr int FATTN_NUM_HEADS = 32;
+constexpr int FATTN_NUM_HEADS = 32;  // Model geometry; not implementation tuning parameters.
 constexpr int FATTN_NUM_KV_HEADS = 8;
 constexpr int FATTN_NUM_LANES = 4;
 constexpr int FATTN_KV_SLOTS_PER_LANE = 2;
@@ -28,8 +28,8 @@ constexpr int FATTN_DUAL_HEAD_CACHE_BANKS = FATTN_NUM_LANES;
 constexpr int FATTN_DUAL_HEAD_CACHE_SLOTS = FATTN_KV_SLOTS_PER_LANE;
 constexpr int FATTN_HEAD_DIM = 128;
 constexpr int FATTN_MODEL_DIM = FATTN_NUM_HEADS * FATTN_HEAD_DIM;
-constexpr int FATTN_KV_REP = 4;
-constexpr int FATTN_HYBRID_FIP_REPS = FATTN_KV_REP / 2;
+constexpr int FATTN_KV_REP = 4;  // Query heads sharing one K/V head: 32 / 8.
+constexpr int FATTN_HYBRID_FIP_REPS = FATTN_KV_REP / 2;  // Retained alternative arithmetic metadata.
 constexpr int FATTN_FIP_REP0 = 1;
 constexpr int FATTN_FIP_REP1 = 2;
 constexpr bool rep_uses_fip(int rep) {
@@ -51,14 +51,14 @@ constexpr int FATTN_Q_HEADS_PER_LANE =
     FATTN_KV_SLOTS_PER_LANE * FATTN_KV_REP;
 constexpr int FATTN_MAX_SEQ_LEN = 8192;
 constexpr int FATTN_MAX_BATCH = 2;
-constexpr int FATTN_TILE_TOKENS = 16;
+constexpr int FATTN_TILE_TOKENS = 16;  // Local row-state bound, not the host sequence limit.
 static_assert(FATTN_TILE_TOKENS > 0 && FATTN_TILE_TOKENS <= 16,
               "query-resident rows must fit the verified temporal state bound");
-constexpr int FATTN_QO_PACK_ELEMS = 16;
+constexpr int FATTN_QO_PACK_ELEMS = 16;  // Packing counts are BF16 elements, not byte counts.
 constexpr int FATTN_QO_HEAD_PACKS = FATTN_HEAD_DIM / FATTN_QO_PACK_ELEMS;
 constexpr int FATTN_KV_PACK_ELEMS = 8;
 constexpr int FATTN_KV_HEAD_PACKS = FATTN_HEAD_DIM / FATTN_KV_PACK_ELEMS;
-constexpr int FATTN_CACHE_LINE_PACKS = 2;
+constexpr int FATTN_CACHE_LINE_PACKS = 2;  // Two paired K/V words occupy one wide line.
 constexpr int FATTN_CACHE_LINES_PER_SLOT =
     FATTN_KV_HEAD_PACKS / FATTN_CACHE_LINE_PACKS;
 constexpr int FATTN_ACTIVE_PLANE_WORDS = FATTN_KV_HEAD_PACKS / 2;
@@ -71,10 +71,10 @@ constexpr int FATTN_PLANE_CHUNKS =
 constexpr int FATTN_DUAL_PORT_ACTIVE_LINES_MAX =
     FATTN_MAX_BATCH * FATTN_TILE_TOKENS * FATTN_KV_SLOTS_PER_LANE *
     FATTN_PLANE_LINES;
-#define FATTN_COMPACT_B2S8_CACHE_STRIDE 19
-#define FATTN_QO_INTERFACE_DEPTH 1048576
-#define FATTN_ACTIVE_DEPTH 524288
-#define FATTN_CACHE_DEPTH 131072
+#define FATTN_COMPACT_B2S8_CACHE_STRIDE 19  // Retained definition; the current top does not read it.
+#define FATTN_QO_INTERFACE_DEPTH 1048576  // 2 batches * 8192 rows * 8 local heads * 8 packed words.
+#define FATTN_ACTIVE_DEPTH 524288  // Retained split-plane count, not active_kv's paired-word depth.
+#define FATTN_CACHE_DEPTH 131072  // Retained split-plane count, not cache_kv's wide-line depth.
 static_assert(
     1048576 ==
         FATTN_MAX_BATCH * FATTN_MAX_SEQ_LEN * FATTN_Q_HEADS_PER_LANE *
@@ -90,7 +90,7 @@ static_assert(
         FATTN_MAX_BATCH * FATTN_MAX_SEQ_LEN * FATTN_KV_SLOTS_PER_LANE *
             FATTN_PLANE_LINES,
     "each split cache K/V depth must cover the complete B2/S8192 boundary");
-constexpr int FATTN_DUAL_PORT_PREFETCH_LINES = 2;
+constexpr int FATTN_DUAL_PORT_PREFETCH_LINES = 2;  // Retained alternate credit organization; not active FIFO tuning.
 constexpr int FATTN_ELASTIC_V_RESPONSE_LINES = 2;
 constexpr int FATTN_ELASTIC_CREDIT_DEPTH = 2;
 static_assert(FATTN_ELASTIC_CREDIT_DEPTH ==
@@ -105,8 +105,8 @@ static_assert(FATTN_PLANE_LINES * 4 ==
 constexpr int FATTN_HALFBEAT_CHUNKS = FATTN_CACHE_LINE_PACKS;
 constexpr int FATTN_HALFBEATS_PER_HEAD =
     FATTN_VALUE_CHUNKS / FATTN_HALFBEAT_CHUNKS;
-constexpr int FATTN_V_CREDIT_REQUIRED_CHUNKS = 112;
-constexpr int FATTN_V_CREDIT_CHUNKS = 128;
+constexpr int FATTN_V_CREDIT_REQUIRED_CHUNKS = 112;  // Inherited pipeline-flight threshold, not model geometry.
+constexpr int FATTN_V_CREDIT_CHUNKS = 128;  // Preserve the value FIFO's selected startup-skew capacity.
 constexpr int FATTN_V_CREDIT_LINES =
     (FATTN_V_CREDIT_CHUNKS + FATTN_PLANE_CHUNKS - 1) /
     FATTN_PLANE_CHUNKS;
@@ -117,12 +117,12 @@ static_assert(
     FATTN_V_CREDIT_LINES * FATTN_PLANE_CHUNKS >=
         FATTN_V_CREDIT_REQUIRED_CHUNKS,
     "wide V credit lines must cover the exact score/scale flight");
-constexpr int FATTN_KV_PACK_BITS = 128;
+constexpr int FATTN_KV_PACK_BITS = 128;  // Transport widths in bits.
 constexpr int FATTN_KV_PAIR_PACK_BITS = 256;
 constexpr int FATTN_QO_PACK_BITS = 256;
 constexpr int FATTN_CACHE_LINE_BITS = 512;
-constexpr float FATTN_INV_SQRT_HEAD_DIM = 0.08838834764831845f;
-constexpr int FATTN_FLAG_ROUND_QK_BF16 = 1 << 1;
+constexpr float FATTN_INV_SQRT_HEAD_DIM = 0.08838834764831845f;  // Stored FP32 form of 1 / sqrt(128); keep its bits.
+constexpr int FATTN_FLAG_ROUND_QK_BF16 = 1 << 1;  // Public runtime control/status encodings below.
 constexpr int FATTN_FLAG_CACHE_PREUPDATED = 1 << 2;
 constexpr int FATTN_VALID_FLAGS =
     FATTN_FLAG_ROUND_QK_BF16 | FATTN_FLAG_CACHE_PREUPDATED;
@@ -139,7 +139,7 @@ inline int validate_boundary_flags(int flags) {
   if ((flags & ~FATTN_VALID_FLAGS) != 0) return FATTN_STATUS_INVALID_FLAGS;
   return FATTN_STATUS_OK;
 }
-struct TilePlan {
+struct TilePlan {  // Action counts describe the unchanged flattened traversals.
   int batches;
   int sequences;
   int context_start;
@@ -152,7 +152,7 @@ struct TilePlan {
   int normalize_actions;
   int normalize_halfbeat_actions;
 };
-#define FATTN_BOUND_WORKLOAD 0
+#define FATTN_BOUND_WORKLOAD 0  // Binding is disabled; runtime arguments remain authoritative.
 #define FATTN_BOUND_BATCH_SIZE 0
 #define FATTN_BOUND_SEQLEN 0
 #define FATTN_BOUND_START_POS 0
@@ -181,16 +181,16 @@ inline bf16_t qo_pack_get_static(qo_pack_t word) {
   return static_cast<bf16_t>(word.range(Lane * 16 + 15, Lane * 16));
 }
 inline qo_pack_t qo_pack_set(qo_pack_t word, int lane,
-                                         bf16_t value) {
+                             bf16_t value) {
   word.range(lane * 16 + 15, lane * 16) = value;
   return word;
 }
 inline bf16_t kv_pair_pack_get_k(kv_pair_pack_t word,
-                                             int lane) {
+                                    int lane) {
   return static_cast<bf16_t>(word.range(lane * 16 + 15, lane * 16));
 }
 inline bf16_t kv_pair_pack_get_v(kv_pair_pack_t word,
-                                             int lane) {
+                                    int lane) {
   const int shift = FATTN_KV_PACK_BITS + lane * 16;
   return static_cast<bf16_t>(word.range(shift + 15, shift));
 }
@@ -228,7 +228,7 @@ inline cache_line_t make_cache_line(
   return line;
 }
 inline kv_pair_pack_t cache_line_get(cache_line_t line,
-                                                  int pack) {
+                                      int pack) {
   return static_cast<kv_pair_pack_t>(
       line >> (pack * FATTN_KV_PAIR_PACK_BITS));
 }
@@ -294,8 +294,8 @@ inline float exp_softmax(float value) {
   return std::exp(value);
 }
 inline TilePlan make_tile_plan(int batches, int sequences,
-                                          int context_start,
-                                          int cache_stride) {
+                               int context_start,
+                               int cache_stride) {
 #pragma HLS INLINE
   const int tasks = batches * sequences * FATTN_KV_SLOTS_PER_LANE;
   const int visible_tokens =
@@ -329,7 +329,7 @@ inline kv_pack_t pack_bf16x8(
   return word;
 }
 inline qo_pack_t pack_output(kv_pack_t lower,
-                                         kv_pack_t upper) {
+                             kv_pack_t upper) {
 #pragma HLS INLINE
   qo_pack_t word = 0;
   word.range(127, 0) = lower;

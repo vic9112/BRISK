@@ -9,11 +9,11 @@
 #pragma once
 
 #include "attention_tile.hpp"
-using KeyStationaryActive =
+using KeyStationaryActive =  // Retained layout for load_resident_kv in kv_alternatives.hpp.
     kv_pair_pack_t[FATTN_KV_SLOTS_PER_LANE][FATTN_MAX_BATCH]
                         [FATTN_TILE_TOKENS][FATTN_KV_HEAD_PACKS];
-constexpr int FATTN_KV_STATIONARY_SLOTS = 1280;
-constexpr int FATTN_SLOTS_PER_LAYER = 40;
+constexpr int FATTN_KV_STATIONARY_SLOTS = 1280;  // 32 layer regions * 40 resident positions.
+constexpr int FATTN_SLOTS_PER_LAYER = 40;  // Shared equally by the active batches within each layer.
 constexpr int FATTN_KV_STATIONARY_B2_WINDOW = 20;
 constexpr int FATTN_KV_STATIONARY_B1_WINDOW = 40;
 constexpr int FATTN_PERSISTENT_HOT_KV_TOKENS =
@@ -26,7 +26,7 @@ static_assert(
     "KV-stationary storage requires forty slots per Llama layer");
 constexpr int FATTN_LIPR_LAYER_BITS = 5;
 constexpr int FATTN_LIPR_LAYER_MASK = (1 << FATTN_LIPR_LAYER_BITS) - 1;
-constexpr int FATTN_LIPR_TAG_BITS = 49;
+constexpr int FATTN_LIPR_TAG_BITS = 49;  // Logical fields below: 32 identity + 13 position + 4 control bits.
 struct KvTag {
   ap_uint<32> cache_identity;
   ap_uint<13> position;
@@ -65,7 +65,7 @@ inline void kv_advance_position_slot(
                    : FATTN_KV_STATIONARY_B2_WINDOW;
   if (++position_slot == window) position_slot = 0;
 }
-inline int kv_index(
+inline int kv_index(  // Retained direct-position helper; active traversal uses kv_index_from_slot.
     int cache_identity, int batch, int position, int batches) {
 #pragma HLS INLINE
   const int layer_id = cache_identity & FATTN_LIPR_LAYER_MASK;
@@ -108,7 +108,7 @@ inline std::size_t kv_cache_index(
               FATTN_CACHE_LINES_PER_SLOT +
           line);
 }
-inline std::size_t dual_port_cache_index(
+inline std::size_t dual_port_cache_index(  // Retained alternate plane layout, not active backing addresses.
     int batch, int position, int slot, int line, int stride) {
 #pragma HLS INLINE
   return (((static_cast<std::size_t>(batch) * stride + position) *
@@ -142,7 +142,7 @@ inline bf16_t dim_pack_get_static(kv_pack_t pack) {
   return static_cast<bf16_t>(
       pack.range(Lane * 16 + 15, Lane * 16));
 }
-inline KChunk dim_key_chunk(kv_pack_t pack) {
+inline KChunk dim_key_chunk(kv_pack_t pack) {  // Retained plane-layout unpacker.
 #pragma HLS INLINE
   KChunk key;
 #pragma HLS ARRAY_PARTITION variable = key.values complete dim = 1
@@ -156,7 +156,7 @@ inline KChunk dim_key_chunk(kv_pack_t pack) {
   key.values[7] = dim_pack_get_static<7>(pack);
   return key;
 }
-inline VChunk dim_value_chunk(kv_pack_t pack) {
+inline VChunk dim_value_chunk(kv_pack_t pack) {  // Retained plane-layout unpacker.
 #pragma HLS INLINE
   VChunk value;
 #pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
@@ -171,7 +171,7 @@ inline VChunk dim_value_chunk(kv_pack_t pack) {
   return value;
 }
 template <int Lane>
-inline void load_kv(
+inline void load_kv(  // Sole persistent K/V owner for one lane specialization.
     cache_line_t *cache, hls::stream<bool> &ready,
     hls::stream<cache_line_t> &forwarded,
     hls::stream<DimensionKPacket> &keys,
@@ -181,10 +181,10 @@ inline void load_kv(
 #pragma HLS INLINE off
   (void)ready;
   static cache_line_t hot_cache[FATTN_PERSISTENT_HOT_KV_TOKENS]
-                                      [FATTN_HOT_LINES];
+                                      [FATTN_HOT_LINES];  // Persistent payload is distinct for each lane specialization.
 #define FATTN_HOT_CACHE_LINE(index,line) hot_cache[(index)][(line)]
   static KvTag hot_tags[FATTN_PERSISTENT_HOT_KV_TOKENS] = {};
-  static KvStationaryState wavefront_states[32] = {};
+  static KvStationaryState wavefront_states[32] = {};  // Continuation bookkeeping is independent for every layer.
 #pragma HLS ARRAY_PARTITION variable = hot_cache block factor = 5 dim = 1
 #pragma HLS BIND_STORAGE variable = hot_cache type = ram_2p impl = uram
 #pragma HLS DEPENDENCE variable = hot_cache inter false
@@ -221,7 +221,7 @@ inline void load_kv(
     int resident_chunk = 0;
     int resident_row = 0;
     int resident_position_slot = 0;
-resident_action_loop:
+resident_action_loop:  // Emit a held chunk once, then reuse it across the eligible rows.
     for (int resident_action = 0;
          resident_action < total_actions; ++resident_action) {
 #pragma HLS PIPELINE II = 1
@@ -289,100 +289,100 @@ resident_action_loop:
       }
     }
   } else {
-  cache_line_t line_buffer = 0;
-  bool hot_hit = false;
-  int batch = 0;
-  int position = 0;
-  int slot = 0;
-  int chunk = 0;
-  int row = 0;
-  int kv_position_slot = 0;
-cache_action_loop:
-  for (int action = 0; action < total_actions; ++action) {
+    cache_line_t line_buffer = 0;
+    bool hot_hit = false;
+    int batch = 0;
+    int position = 0;
+    int slot = 0;
+    int chunk = 0;
+    int row = 0;
+    int kv_position_slot = 0;
+cache_action_loop:  // General backing/tag policy is retained verbatim.
+    for (int action = 0; action < total_actions; ++action) {
 #pragma HLS PIPELINE II = 1
-    const int first_row = position < start ? 0 : position - start;
-    const int hot_index =
-        kv_index_from_slot(
-            cache_identity, batch, kv_position_slot, batches);
-    if (slot == 0 && chunk == 0 && row == first_row) {
-      hot_hit =
-          position < start && hot_tags[hot_index].valid &&
-          hot_tags[hot_index].cache_identity == cache_identity &&
-          hot_tags[hot_index].batch == batch &&
-          hot_tags[hot_index].position == position
-          && kv_geometry_matches(hot_tags[hot_index], batches)
-          ;
-    }
-    const int storage_line = chunk / FATTN_CACHE_LINE_PACKS;
-    if ((chunk % FATTN_CACHE_LINE_PACKS) == 0 && row == first_row) {
-      const int hot_line =
-          slot * FATTN_CACHE_LINES_PER_SLOT + storage_line;
-      bool update_hot = false;
-      const KvTag kv_victim_tag = hot_tags[hot_index];
-      const bool kv_writeback =
-          !hot_hit && kv_victim_tag.valid &&
-          kv_victim_tag.dirty &&
-          kv_victim_tag.cache_identity == cache_identity &&
-          kv_geometry_matches(
-              kv_victim_tag, batches);
-      if (kv_writeback) {
-        cache[kv_cache_index(
-            kv_victim_tag.batch,
-            kv_victim_tag.position, slot, storage_line,
-            cache_stride)] =
-            hot_cache[(hot_index)][(hot_line)];
+      const int first_row = position < start ? 0 : position - start;
+      const int hot_index =
+          kv_index_from_slot(
+              cache_identity, batch, kv_position_slot, batches);
+      if (slot == 0 && chunk == 0 && row == first_row) {
+        hot_hit =
+            position < start && hot_tags[hot_index].valid &&
+            hot_tags[hot_index].cache_identity == cache_identity &&
+            hot_tags[hot_index].batch == batch &&
+            hot_tags[hot_index].position == position
+            && kv_geometry_matches(hot_tags[hot_index], batches)
+            ;
       }
-      if (position < start) {
-        line_buffer =
-            hot_hit
-                ? hot_cache[(hot_index)][(hot_line)]
-                : cache[kv_cache_index(
-                      batch, position, slot, storage_line, cache_stride)];
-        update_hot = !hot_hit;
-      } else {
-        line_buffer = forwarded.read();
-        update_hot = true;
-      }
-      if (update_hot)
-        hot_cache[(hot_index)][(hot_line)] = line_buffer;
-      if (update_hot && slot + 1 == FATTN_KV_SLOTS_PER_LANE &&
-          storage_line + 1 == FATTN_CACHE_LINES_PER_SLOT) {
-        hot_tags[hot_index] =
-            kv_tag(
-                cache_identity, batch, position,
-                position >= start && !cache_preupdated, batches
-            );
-      }
-    }
-    KChunk key;
-    VChunk value;
-#pragma HLS ARRAY_PARTITION variable = key.values complete dim = 1
-#pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
-    kv_unpack(
-        cache_line_get(
-            line_buffer, chunk % FATTN_CACHE_LINE_PACKS),
-        key, value);
-    if (row == first_row) keys.write(key);
-    if (row == first_row) values.write(value);
-    if (++row == sequences) {
-      row = first_row;
-      if (++chunk == FATTN_VALUE_CHUNKS) {
-        chunk = 0;
-        if (++slot == FATTN_KV_SLOTS_PER_LANE) {
-          slot = 0;
-          ++position;
-          kv_advance_position_slot(
-              kv_position_slot, batches);
-          if (position == start + sequences) {
-            position = 0;
-            kv_position_slot = 0;
-            ++batch;
-          }
+      const int storage_line = chunk / FATTN_CACHE_LINE_PACKS;
+      if ((chunk % FATTN_CACHE_LINE_PACKS) == 0 && row == first_row) {
+        const int hot_line =
+            slot * FATTN_CACHE_LINES_PER_SLOT + storage_line;
+        bool update_hot = false;
+        const KvTag kv_victim_tag = hot_tags[hot_index];
+        const bool kv_writeback =
+            !hot_hit && kv_victim_tag.valid &&
+            kv_victim_tag.dirty &&
+            kv_victim_tag.cache_identity == cache_identity &&
+            kv_geometry_matches(
+                kv_victim_tag, batches);
+        if (kv_writeback) {
+          cache[kv_cache_index(
+              kv_victim_tag.batch,
+              kv_victim_tag.position, slot, storage_line,
+              cache_stride)] =
+              hot_cache[(hot_index)][(hot_line)];
+        }
+        if (position < start) {
+          line_buffer =
+              hot_hit
+                  ? hot_cache[(hot_index)][(hot_line)]
+                  : cache[kv_cache_index(
+                        batch, position, slot, storage_line, cache_stride)];
+          update_hot = !hot_hit;
+        } else {
+          line_buffer = forwarded.read();
+          update_hot = true;
+        }
+        if (update_hot)
+          hot_cache[(hot_index)][(hot_line)] = line_buffer;
+        if (update_hot && slot + 1 == FATTN_KV_SLOTS_PER_LANE &&
+            storage_line + 1 == FATTN_CACHE_LINES_PER_SLOT) {
+          hot_tags[hot_index] =
+              kv_tag(
+                  cache_identity, batch, position,
+                  position >= start && !cache_preupdated, batches
+              );
         }
       }
-      row = position < start ? 0 : position - start;
+      KChunk key;
+      VChunk value;
+#pragma HLS ARRAY_PARTITION variable = key.values complete dim = 1
+#pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
+      kv_unpack(
+          cache_line_get(
+              line_buffer, chunk % FATTN_CACHE_LINE_PACKS),
+          key, value);
+      if (row == first_row) keys.write(key);
+      if (row == first_row) values.write(value);
+      if (++row == sequences) {
+        row = first_row;
+        if (++chunk == FATTN_VALUE_CHUNKS) {
+          chunk = 0;
+          if (++slot == FATTN_KV_SLOTS_PER_LANE) {
+            slot = 0;
+            ++position;
+            kv_advance_position_slot(
+                kv_position_slot, batches);
+            if (position == start + sequences) {
+              position = 0;
+              kv_position_slot = 0;
+              ++batch;
+            }
+          }
+        }
+        row = position < start ? 0 : position - start;
+      }
     }
-  }
   }
   KvStationaryState next_wavefront_state;
   next_wavefront_state.cache_identity = cache_identity;
@@ -393,107 +393,9 @@ cache_action_loop:
   (void)cache_preupdated;
 #undef FATTN_HOT_CACHE_LINE
 }
-template <int Lane>
-inline void load_resident_kv(
-    const cache_line_t *cache, hls::stream<bool> &ready,
-    hls::stream<cache_line_t> &forwarded,
-    hls::stream<KChunk> &keys, hls::stream<VChunk> &values,
-    int batches, int sequences, int start, int cache_stride) {
-#pragma HLS INLINE off
-  static cache_line_t hot_cache[FATTN_PERSISTENT_HOT_KV_TOKENS]
-                                      [FATTN_HOT_LINES];
-  static int hot_expected_start = 0;
-  static int hot_cache_stride = 0;
-  static int hot_batches = 0;
-  static bool hot_state_valid = false;
-#pragma HLS BIND_STORAGE variable = hot_cache type = ram_2p impl = uram
-  const bool continuous =
-      hot_state_valid && start != 0 && start == hot_expected_start &&
-      cache_stride == hot_cache_stride && batches == hot_batches;
-  const int hot_tokens_per_batch =
-      batches == 1 ? FATTN_PERSISTENT_HOT_KV_TOKENS
-                   : FATTN_PERSISTENT_HOT_KV_TOKENS / FATTN_MAX_BATCH;
-  const int hot_resident_start =
-      start > hot_tokens_per_batch ? start - hot_tokens_per_batch : 0;
-  KeyStationaryActive active;
-#pragma HLS ARRAY_PARTITION variable = active complete dim = 1
-#pragma HLS BIND_STORAGE variable = active type = ram_2p impl = bram
-  for (int batch = 0; batch < batches; ++batch)
-    for (int row = 0; row < sequences; ++row)
-      for (int slot = 0; slot < FATTN_KV_SLOTS_PER_LANE; ++slot) {
-        (void)ready.read();
-        for (int line = 0; line < FATTN_CACHE_LINES_PER_SLOT; ++line) {
-#pragma HLS PIPELINE II = 1
-          const cache_line_t active_line = forwarded.read();
-          active[slot][batch][row][line * 2] =
-              cache_line_get(active_line, 0);
-          active[slot][batch][row][line * 2 + 1] =
-              cache_line_get(active_line, 1);
-        }
-      }
-  KChunk key_buffer[FATTN_VALUE_CHUNKS];
-  VChunk value_buffer[FATTN_VALUE_CHUNKS];
-#pragma HLS BIND_STORAGE variable = key_buffer type = ram_2p impl = bram
-#pragma HLS BIND_STORAGE variable = value_buffer type = ram_2p impl = bram
-  for (int batch = 0; batch < batches; ++batch) {
-    for (int position = 0; position < start + sequences; ++position) {
-      const int first_row = position < start ? 0 : position - start;
-      const int hot_index =
-          batches == 1
-              ? position & (FATTN_PERSISTENT_HOT_KV_TOKENS - 1)
-              : batch * (FATTN_PERSISTENT_HOT_KV_TOKENS / FATTN_MAX_BATCH) +
-                    (position &
-                     (FATTN_PERSISTENT_HOT_KV_TOKENS / FATTN_MAX_BATCH - 1));
-      const bool hot_hit = continuous && position < start &&
-                           position >= hot_resident_start;
-      for (int slot = 0; slot < FATTN_KV_SLOTS_PER_LANE; ++slot) {
-        for (int line = 0; line < FATTN_CACHE_LINES_PER_SLOT; ++line) {
-#pragma HLS PIPELINE II = 1
-          const int hot_line =
-              slot * FATTN_CACHE_LINES_PER_SLOT + line;
-          const cache_line_t cache_line =
-              position < start
-                  ? (hot_hit
-                         ? hot_cache[hot_index][hot_line]
-                         : cache[kv_cache_index(
-                               batch, position, slot, line, cache_stride)])
-                  : make_cache_line(
-                        active[slot][batch][position - start][line * 2],
-                        active[slot][batch][position - start][line * 2 + 1]);
-          for (int half = 0; half < FATTN_CACHE_LINE_PACKS; ++half) {
-#pragma HLS UNROLL
-            const int chunk = line * FATTN_CACHE_LINE_PACKS + half;
-            const kv_pair_pack_t word =
-                position < start
-                    ? cache_line_get(cache_line, half)
-                    : active[slot][batch][position - start][chunk];
-            KChunk key;
-            VChunk value;
-#pragma HLS ARRAY_PARTITION variable = key.values complete dim = 1
-#pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
-            kv_unpack(word, key, value);
-            key_buffer[chunk] = key;
-            value_buffer[chunk] = value;
-          }
-          if (!hot_hit && (!continuous || position >= start))
-            hot_cache[hot_index][hot_line] = cache_line;
-        }
-        for (int row = first_row; row < sequences; ++row) {
-          for (int chunk = 0; chunk < FATTN_VALUE_CHUNKS; ++chunk) {
-#pragma HLS PIPELINE II = 1
-            keys.write(key_buffer[chunk]);
-            values.write(value_buffer[chunk]);
-          }
-        }
-      }
-    }
-  }
-  hot_expected_start = start + sequences;
-  hot_cache_stride = cache_stride;
-  hot_batches = batches;
-  hot_state_valid = true;
-}
-inline void qk_lane(
+// Preserve HLS source-location identifiers after separating alternatives.
+#line 496
+inline void qk_lane(  // Read one key chunk per position/slot/chunk, not once per query row.
     hls::stream<QPair> &rep0, hls::stream<QPair> &rep1,
     hls::stream<QPair> &rep2, hls::stream<QPair> &rep3,
     hls::stream<KChunk> &keys, hls::stream<Score> &scores,
@@ -509,111 +411,111 @@ inline void qk_lane(
               [FATTN_KV_REP][FATTN_VALUE_CHUNKS / 2];
   float previous[FATTN_TILE_TOKENS][FATTN_KV_SLOTS_PER_LANE]
                 [FATTN_KV_REP];
-  KChunk held_key;
-  float held_beta[FATTN_FIP_BETA_PRODUCTS];
+  KChunk held_key;  // Hold one dimension chunk while visiting its eligible query rows.
+  float held_beta[FATTN_FIP_BETA_PRODUCTS];  // Retained unused hybrid scratch, not canonical arithmetic.
 #pragma HLS ARRAY_PARTITION variable = blocks complete dim = 3
 #pragma HLS ARRAY_PARTITION variable = previous complete dim = 3
 #pragma HLS ARRAY_PARTITION variable = held_key.values complete dim = 1
 #pragma HLS ARRAY_PARTITION variable = held_beta complete dim = 1
 #pragma HLS BIND_STORAGE variable = blocks type = ram_t2p impl = bram
 #pragma HLS BIND_STORAGE variable = previous type = ram_t2p impl = bram
-  int batch = 0, position = 0, slot = 0, chunk = 0, row = 0;
-qk_action_loop:
+  int batch = 0, position = 0, slot = 0, chunk = 0, row = 0;  // Row is the innermost temporal traversal index.
+qk_action_loop:  // Row-interleaved chunk actions retain one continuous temporal pipeline.
   for (int action = 0; action < actions; ++action) {
 #pragma HLS PIPELINE II = 1 style = flp
-          const int first_row =
-              position < context_start ? 0 : position - context_start;
-          qo_pack_t query_words[FATTN_KV_REP];
-          QPair packets[FATTN_KV_REP];
-          float key_values[FATTN_VALUE_LANES];
-          float canonical_products[FATTN_KV_REP][FATTN_VALUE_LANES];
+    const int first_row =
+        position < context_start ? 0 : position - context_start;
+    qo_pack_t query_words[FATTN_KV_REP];
+    QPair packets[FATTN_KV_REP];
+    float key_values[FATTN_VALUE_LANES];
+    float canonical_products[FATTN_KV_REP][FATTN_VALUE_LANES];
 #pragma HLS ARRAY_PARTITION variable = query_words complete dim = 1
 #pragma HLS ARRAY_PARTITION variable = packets complete dim = 0
 #pragma HLS ARRAY_PARTITION variable = key_values complete dim = 1
 #pragma HLS ARRAY_PARTITION variable = canonical_products complete dim = 0
-          const bool load_query = position == 0 && (chunk & 3) == 0;
-          if (row == first_row) {
-            held_key = keys.read();
-          }
-          const KChunk key = held_key;
-          if (load_query) {
-            packets[0] = rep0.read();
-            packets[1] = rep1.read();
-            packets[2] = rep2.read();
-            packets[3] = rep3.read();
-          }
-          for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
+    const bool load_query = position == 0 && (chunk & 3) == 0;
+    if (row == first_row) {
+      held_key = keys.read();
+    }
+    const KChunk key = held_key;
+    if (load_query) {
+      packets[0] = rep0.read();
+      packets[1] = rep1.read();
+      packets[2] = rep2.read();
+      packets[3] = rep3.read();
+    }
+    for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
 #pragma HLS UNROLL
-            if (load_query) {
-              query[batch][row][slot][rep][chunk >> 1] =
-                  packets[rep].words[0];
-              query[batch][row][slot][rep][(chunk >> 1) + 1] =
-                  packets[rep].words[1];
-              query_words[rep] = packets[rep].words[0];
-            } else {
-              query_words[rep] =
-                  query[batch][row][slot][rep][chunk >> 1];
-            }
-          }
-          for (int lane = 0; lane < FATTN_VALUE_LANES; ++lane) {
+      if (load_query) {
+        query[batch][row][slot][rep][chunk >> 1] =
+            packets[rep].words[0];
+        query[batch][row][slot][rep][(chunk >> 1) + 1] =
+            packets[rep].words[1];
+        query_words[rep] = packets[rep].words[0];
+      } else {
+        query_words[rep] =
+            query[batch][row][slot][rep][chunk >> 1];
+      }
+    }
+    for (int lane = 0; lane < FATTN_VALUE_LANES; ++lane) {
 #pragma HLS UNROLL
-            key_values[lane] = bf16_to_float(key.values[lane]);
-          }
-          if ((chunk & 1) == 0)
-            canonical_qk_products<0>(
-                query_words, key_values, canonical_products);
-          else
-            canonical_qk_products<8>(
-                query_words, key_values, canonical_products);
-          Score result;
+      key_values[lane] = bf16_to_float(key.values[lane]);
+    }
+    if ((chunk & 1) == 0)
+      canonical_qk_products<0>(
+          query_words, key_values, canonical_products);
+    else
+      canonical_qk_products<8>(
+          query_words, key_values, canonical_products);
+    Score result;
 #pragma HLS ARRAY_PARTITION variable = result.values complete dim = 1
-          for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
+    for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
 #pragma HLS UNROLL
-            float chunk_sum;
-            chunk_sum = reduce_eight(canonical_products[rep]);
-            if ((chunk & 1) == 0) {
-              previous[row][slot][rep] = chunk_sum;
-            } else {
-              const float block_sum =
-                  previous[row][slot][rep] + chunk_sum;
-              blocks[row][slot][rep][chunk >> 1] = block_sum;
-              if (chunk + 1 == FATTN_VALUE_CHUNKS) {
-                float complete_blocks[FATTN_VALUE_CHUNKS / 2];
+      float chunk_sum;
+      chunk_sum = reduce_eight(canonical_products[rep]);
+      if ((chunk & 1) == 0) {
+        previous[row][slot][rep] = chunk_sum;
+      } else {
+        const float block_sum =
+            previous[row][slot][rep] + chunk_sum;
+        blocks[row][slot][rep][chunk >> 1] = block_sum;
+        if (chunk + 1 == FATTN_VALUE_CHUNKS) {
+          float complete_blocks[FATTN_VALUE_CHUNKS / 2];
 #pragma HLS ARRAY_PARTITION variable = complete_blocks complete dim = 1
-                for (int block = 0;
-                     block < FATTN_VALUE_CHUNKS / 2; ++block) {
+          for (int block = 0;
+               block < FATTN_VALUE_CHUNKS / 2; ++block) {
 #pragma HLS UNROLL
-                  complete_blocks[block] =
-                      block + 1 == FATTN_VALUE_CHUNKS / 2
-                          ? block_sum
-                          : blocks[row][slot][rep][block];
-                }
-                const float score = reduce_eight(complete_blocks);
-                result.values[rep] = maybe_round_bf16(
-                    score * FATTN_INV_SQRT_HEAD_DIM, round_qk_bf16);
-              }
-            }
+            complete_blocks[block] =
+                block + 1 == FATTN_VALUE_CHUNKS / 2
+                    ? block_sum
+                    : blocks[row][slot][rep][block];
           }
-          if (chunk + 1 == FATTN_VALUE_CHUNKS) scores.write(result);
-          if (++row == sequences) {
-            row = first_row;
-            if (++chunk == FATTN_VALUE_CHUNKS) {
-              chunk = 0;
-              if (++slot == FATTN_KV_SLOTS_PER_LANE) {
-                slot = 0;
-                if (++position == context_start + sequences) {
-                  position = 0;
-                  ++batch;
-                }
-              }
-              row =
-                  position < context_start ? 0 : position - context_start;
-            }
+          const float score = reduce_eight(complete_blocks);
+          result.values[rep] = maybe_round_bf16(
+              score * FATTN_INV_SQRT_HEAD_DIM, round_qk_bf16);
+        }
+      }
+    }
+    if (chunk + 1 == FATTN_VALUE_CHUNKS) scores.write(result);
+    if (++row == sequences) {
+      row = first_row;
+      if (++chunk == FATTN_VALUE_CHUNKS) {
+        chunk = 0;
+        if (++slot == FATTN_KV_SLOTS_PER_LANE) {
+          slot = 0;
+          if (++position == context_start + sequences) {
+            position = 0;
+            ++batch;
           }
+        }
+        row =
+            position < context_start ? 0 : position - context_start;
+      }
+    }
   }
   (void)batches;
 }
-inline void online_sm_step(
+inline void online_sm_step(  // One row/slot/representative's ordered FP32 recurrence.
     float maximum[FATTN_NUM_LANES][FATTN_TILE_TOKENS]
                  [FATTN_KV_SLOTS_PER_LANE][FATTN_KV_REP],
     float denominator[FATTN_NUM_LANES][FATTN_TILE_TOKENS]
@@ -652,7 +554,7 @@ inline void online_sm_step(
     }
   }
 }
-inline void online_sm(
+inline void online_sm(  // Interleave lanes while retaining independent row/slot state.
     hls::stream<Score> scores[FATTN_NUM_LANES],
     hls::stream<Scale> scales[FATTN_NUM_LANES],
     hls::stream<Denominator> denominators[FATTN_NUM_LANES],
@@ -705,7 +607,7 @@ inline void online_sm(
     }
   }
 }
-inline void sv_lane(
+inline void sv_lane(  // Reuse each V chunk; emit a row only at its final visible position.
     hls::stream<Scale> &scales, hls::stream<VChunk> &values,
     hls::stream<AccChunk> &results, int batches, int sequences,
     int start) {
@@ -724,7 +626,7 @@ inline void sv_lane(
       FATTN_VALUE_CHUNKS;
   int batch = 0, position = 0, slot = 0, chunk = 0, row = 0;
   VChunk value;
-sv_update_loop:
+sv_update_loop:  // Reuse a value chunk across rows before advancing its dimension chunk.
   for (int action = 0; action < total_actions; ++action) {
 #pragma HLS DEPENDENCE variable = state inter false
 #pragma HLS PIPELINE II = 1
@@ -755,9 +657,9 @@ sv_update_loop:
               state[row][slot][rep][dimension];
           const bool grew = scale_max_grew(scale, rep);
           const float multiply = grew ? previous : current;
-          const float factor = scale_nontrivial(scale, rep);
+          const float factor = scale_nontrivial(scale, rep);  // The other online-softmax factor is exactly one.
           const float add = grew ? current : previous;
-          next = multiply * factor + add;
+          next = multiply * factor + add;  // Preserve the selected single-multiply update.
         }
         state[row][slot][rep][dimension] = next;
         result.values[rep][lane] = next;
@@ -780,61 +682,6 @@ sv_update_loop:
     }
   }
 }
-inline void sv_update(
-    hls::stream<Scale> &scales, hls::stream<VChunk> &values,
-    hls::stream<AccChunk> &results, int batches, int sequences,
-    int start) {
-#pragma HLS INLINE off
-  float state[FATTN_TILE_TOKENS][FATTN_KV_SLOTS_PER_LANE]
-             [FATTN_KV_REP][FATTN_HEAD_DIM];
-#pragma HLS ARRAY_PARTITION variable = state complete dim = 3
-#pragma HLS ARRAY_PARTITION variable = state cyclic factor = FATTN_VALUE_LANES dim = 4
-#pragma HLS BIND_STORAGE variable = state type = ram_t2p impl = bram
-  const int visible_rows =
-      sequences * start + sequences * (sequences + 1) / 2;
-  const int total_actions =
-      batches * visible_rows * FATTN_KV_SLOTS_PER_LANE * FATTN_VALUE_CHUNKS;
-  int position = 0, slot = 0, row = 0, chunk = 0;
-  Scale scale;
-  for (int action = 0; action < total_actions; ++action) {
-#pragma HLS DEPENDENCE variable = state inter false
-#pragma HLS PIPELINE II = 1
-    if (chunk == 0) scale = scales.read();
-    const VChunk value = values.read();
-    AccChunk result;
-#pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
-#pragma HLS ARRAY_PARTITION variable = result.values complete dim = 0
-    for (int lane = 0; lane < FATTN_VALUE_LANES; ++lane) {
-#pragma HLS UNROLL
-      const int dimension = chunk * FATTN_VALUE_LANES + lane;
-      const float current = bf16_to_float(value.values[lane]);
-      for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
-#pragma HLS UNROLL
-        float next;
-        if (position == 0) {
-          next = current;
-        } else {
-          const float previous = state[row][slot][rep][dimension];
-          const bool grew = scale_max_grew(scale, rep);
-          const float multiply = grew ? previous : current;
-          const float factor = scale_nontrivial(scale, rep);
-          const float add = grew ? current : previous;
-          next = multiply * factor + add;
-        }
-        state[row][slot][rep][dimension] = next;
-        result.values[rep][lane] = next;
-      }
-    }
-    if (position == start + row) results.write(result);
-    if (++chunk == FATTN_VALUE_CHUNKS) {
-      chunk = 0;
-      if (++row == sequences) {
-        if (++slot == FATTN_KV_SLOTS_PER_LANE) {
-          slot = 0;
-          if (++position == start + sequences) position = 0;
-        }
-        row = position < start ? 0 : position - start;
-      }
-    }
-  }
-}
+
+// Retained alternatives are not selected by the active kernel.
+#include "kv_alternatives.hpp"

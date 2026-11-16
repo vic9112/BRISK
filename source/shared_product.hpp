@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "attention.hpp"
+#include "attention.hpp"  // Alternate product-bank helpers remain unchanged; active QK uses canonical products.
 constexpr int FATTN_FIP_PAIRS_PER_CHUNK = FATTN_VALUE_LANES / 2;
 constexpr int FATTN_HYBRID_CLASSICAL_REPS =
     FATTN_KV_REP - FATTN_HYBRID_FIP_REPS;
@@ -49,7 +49,7 @@ struct TemporalRowProducts {
   float classical[FATTN_CLASSICAL_PRODUCTS];
 };
 inline void hybrid_product_bank(const HybridOperands &operands,
-                                      HybridProducts &products) {
+                                HybridProducts &products) {
 #pragma HLS INLINE
 #pragma HLS ARRAY_PARTITION variable = operands.left complete dim = 1
 #pragma HLS ARRAY_PARTITION variable = operands.right complete dim = 1

@@ -15,12 +15,12 @@ struct VChunk {
 struct VHalfbeat {
   VChunk halves[FATTN_HALFBEAT_CHUNKS];
 };
-using DimensionKPacket = KChunk;
+using DimensionKPacket = KChunk;  // Active lane packet aliases preserve the stream payload types.
 using DimensionVPacket = VChunk;
 using DimensionAccPacket = AccChunk;
-inline float sv_classical_update(float previous, float previous_factor,
-                                       float current_weight, float value,
-                                       bool has_previous) {
+inline float sv_classical_update(float previous, float previous_factor,  // Retained alternative; selected SV is sv_lane.
+                                 float current_weight, float value,
+                                 bool has_previous) {
 #pragma HLS INLINE
   const float carried =
       has_previous ? previous * previous_factor : 0.0f;

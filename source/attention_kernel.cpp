@@ -8,10 +8,10 @@
 
 #include "attention_tile.hpp"
 #include "kv_stream.hpp"
+#include "attention_alternatives.hpp"
 namespace {
-using ActiveTile =
-    kv_pair_pack_t[FATTN_KV_SLOTS_PER_LANE][FATTN_MAX_BATCH]
-                        [FATTN_TILE_TOKENS][FATTN_KV_HEAD_PACKS];
+// Preserve HLS source-location identifiers after separating alternatives.
+#line 15
 int validate_attention_call(int batch, int seqlen, int start, int stride,
                             int valid, int mask, int flags) {
 #pragma HLS INLINE
@@ -25,15 +25,8 @@ int validate_attention_call(int batch, int seqlen, int start, int stride,
     return FATTN_STATUS_INVALID_MASK;
   return validate_boundary_flags(flags);
 }
-inline std::size_t cache_index(int batch, int position, int slot, int line,
-                               int stride) {
-#pragma HLS INLINE
-  return (((static_cast<std::size_t>(batch) * stride + position) *
-                FATTN_KV_SLOTS_PER_LANE +
-            slot) *
-               FATTN_CACHE_LINES_PER_SLOT +
-           line);
-}
+// Preserve HLS source-location identifiers after separating alternatives.
+#line 37
 inline void write_active_word(
     hls::stream<kv_pair_pack_t> even[4],
     hls::stream<kv_pair_pack_t> odd[4], int head, int pack,
@@ -52,7 +45,7 @@ inline void write_active_word(
     }
   }
 }
-void load_active_tile(
+void load_active_tile(  // Distribute incoming paired words; no resident ownership here.
     const kv_pair_pack_t *active,
     hls::stream<kv_pair_pack_t> even[4],
     hls::stream<kv_pair_pack_t> odd[4], int batch_size,
@@ -62,9 +55,9 @@ void load_active_tile(
 #pragma HLS ARRAY_PARTITION variable = even complete dim = 1
 #pragma HLS ARRAY_PARTITION variable = odd complete dim = 1
   if (prefill_physical_frame) {
-    cache_line_t frame[64];
+    cache_line_t frame[64];  // One flattened token: 8 K/V heads * 8 wide lines.
 #pragma HLS BIND_STORAGE variable = frame type = ram_t2p impl = bram
-    for (int token = 0; token < 16; ++token) {
+    for (int token = 0; token < 16; ++token) {  // Batch-two/eight-row contiguous burst staging.
       for (int line = 0; line < 64; ++line) {
 #pragma HLS PIPELINE II = 1
         const int base = token * 128 + line * 2;
@@ -73,14 +66,14 @@ void load_active_tile(
       }
       for (int line = 0; line < 64; ++line) {
 #pragma HLS PIPELINE II = 1
-      const int first_word = line * 2;
-      const int first_pack = first_word & (FATTN_KV_HEAD_PACKS - 1);
-      const int head = (first_word / FATTN_KV_HEAD_PACKS) &
-                       (FATTN_NUM_KV_HEADS - 1);
-      write_active_word(even, odd, head, first_pack,
-                        cache_line_get(frame[line], 0));
-      write_active_word(even, odd, head, first_pack + 1,
-                        cache_line_get(frame[line], 1));
+        const int first_word = line * 2;
+        const int first_pack = first_word & (FATTN_KV_HEAD_PACKS - 1);
+        const int head = (first_word / FATTN_KV_HEAD_PACKS) &
+                         (FATTN_NUM_KV_HEADS - 1);
+        write_active_word(even, odd, head, first_pack,
+                          cache_line_get(frame[line], 0));
+        write_active_word(even, odd, head, first_pack + 1,
+                          cache_line_get(frame[line], 1));
       }
     }
     return;
@@ -100,7 +93,7 @@ void load_active_tile(
           write_active_word(even, odd, head, pack, active[index]);
         }
 }
-void update_cache_tile(
+void update_cache_tile(  // Forward complete incoming lines to load_kv; keep the existing stream order.
     hls::stream<kv_pair_pack_t> &even,
     hls::stream<kv_pair_pack_t> &odd,
     hls::stream<bool> &ready, hls::stream<cache_line_t> &forwarded,
@@ -126,143 +119,15 @@ void update_cache_tile(
     }
   }
 }
-template <int Lane>
-inline void unpack_kv_lane(kv_pair_pack_t word, KChunk &key,
-                           VChunk &value) {
-#pragma HLS INLINE
-  key.values[Lane] = kv_pair_pack_get_k_static<Lane>(word);
-  value.values[Lane] = kv_pair_pack_get_v_static<Lane>(word);
-}
-inline void unpack_kv(kv_pair_pack_t word, KChunk &key,
-                      VChunk &value) {
-#pragma HLS INLINE
-  unpack_kv_lane<0>(word, key, value); unpack_kv_lane<1>(word, key, value);
-  unpack_kv_lane<2>(word, key, value); unpack_kv_lane<3>(word, key, value);
-  unpack_kv_lane<4>(word, key, value); unpack_kv_lane<5>(word, key, value);
-  unpack_kv_lane<6>(word, key, value); unpack_kv_lane<7>(word, key, value);
-}
-void stream_cache_tile(
-    const cache_line_t *cache, hls::stream<bool> &ready,
-    hls::stream<cache_line_t> &forwarded,
-    hls::stream<KChunk> &keys, hls::stream<VChunk> &values,
-    int sequences, int start, int cache_stride, int actions) {
-#pragma HLS INLINE off
-  ActiveTile active;
-#pragma HLS ARRAY_PARTITION variable = active complete dim = 1
-#pragma HLS BIND_STORAGE variable = active type = ram_2p impl = bram
-  cache_line_t active_line = 0;
-  int batch = 0, sequence = 0, slot = 0, position = 0, chunk = 0;
-  for (int action = 0; action < actions; ++action) {
-#pragma HLS PIPELINE II = 1
-    if (position == 0 && chunk == 0) (void)ready.read();
-    const int pack = chunk;
-    kv_pair_pack_t word;
-    if (position >= start) {
-      const int active_sequence = position - start;
-      if (active_sequence == sequence) {
-        if ((pack & 1) == 0) active_line = forwarded.read();
-        word = cache_line_get(active_line, pack & 1);
-        active[slot][batch][active_sequence][pack] = word;
-      } else {
-        word = active[slot][batch][active_sequence][pack];
-      }
-    } else {
-      const cache_line_t line =
-          cache[cache_index(batch, position, slot, pack >> 1, cache_stride)];
-      word = cache_line_get(line, pack & 1);
-    }
-    KChunk key;
-    VChunk value;
-#pragma HLS ARRAY_PARTITION variable = key.values complete dim = 1
-#pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
-    unpack_kv(word, key, value);
-    keys.write(key);
-    values.write(value);
-    if (++chunk == FATTN_VALUE_CHUNKS) {
-      chunk = 0;
-      if (++position == start + sequence + 1) {
-        position = 0;
-        if (++slot == FATTN_KV_SLOTS_PER_LANE) {
-          slot = 0;
-          if (++sequence == sequences) {
-            sequence = 0;
-            ++batch;
-          }
-        }
-      }
-    }
-  }
-}
-void accumulate_values(
-    hls::stream<Scale> &scales, hls::stream<VChunk> &values,
-    hls::stream<AccChunk> &results, int sequences, int start,
-    int actions) {
-#pragma HLS INLINE off
-  float state[FATTN_KV_REP][FATTN_HEAD_DIM];
-#pragma HLS ARRAY_PARTITION variable = state complete dim = 1
-#pragma HLS ARRAY_PARTITION variable = state cyclic factor = FATTN_VALUE_LANES dim = 2
-  Scale scale;
-  int batch = 0, sequence = 0, slot = 0, position = 0, chunk = 0;
-  for (int action = 0; action < actions; ++action) {
-#pragma HLS DEPENDENCE variable = state inter false
-#pragma HLS PIPELINE II = 1
-    if (chunk == 0) scale = scales.read();
-    const VChunk value = values.read();
-    AccChunk result;
-#pragma HLS ARRAY_PARTITION variable = value.values complete dim = 1
-#pragma HLS ARRAY_PARTITION variable = result.values complete dim = 0
-    if (position == 0) {
-      for (int lane = 0; lane < FATTN_VALUE_LANES; ++lane) {
-#pragma HLS UNROLL
-        const int dimension = chunk * FATTN_VALUE_LANES + lane;
-        const float v = bf16_to_float(value.values[lane]);
-        for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
-#pragma HLS UNROLL
-          state[rep][dimension] = v;
-          result.values[rep][lane] = v;
-        }
-      }
-    } else {
-      for (int lane = 0; lane < FATTN_VALUE_LANES; ++lane) {
-#pragma HLS UNROLL
-        const int dimension = chunk * FATTN_VALUE_LANES + lane;
-        const float v = bf16_to_float(value.values[lane]);
-        for (int rep = 0; rep < FATTN_KV_REP; ++rep) {
-#pragma HLS UNROLL
-          const float previous = state[rep][dimension];
-          const bool grew = scale_max_grew(scale, rep);
-          const float multiply = grew ? previous : v;
-          const float factor = scale_nontrivial(scale, rep);
-          const float add = grew ? v : previous;
-          const float next = multiply * factor + add;
-          state[rep][dimension] = next;
-          result.values[rep][lane] = next;
-        }
-      }
-    }
-    if (position + 1 == start + sequence + 1) results.write(result);
-    if (++chunk == FATTN_VALUE_CHUNKS) {
-      chunk = 0;
-      if (++position == start + sequence + 1) {
-        position = 0;
-        if (++slot == FATTN_KV_SLOTS_PER_LANE) {
-          slot = 0;
-          if (++sequence == sequences) {
-            sequence = 0;
-            ++batch;
-          }
-        }
-      }
-    }
-  }
-}
-void store_output(hls::stream<qo_pack_t> &words,
+// Preserve HLS source-location identifiers after separating alternatives.
+#line 259
+void store_output(hls::stream<qo_pack_t> &words,  // Drain normalized words to the original host layout.
                   qo_pack_t *output, int batches, int sequences,
                   int total_seqlen, int tile_start,
                   bool prefill_physical_frame) {
 #pragma HLS INLINE off
   if (prefill_physical_frame) {
-    qo_pack_t frame[64];
+    qo_pack_t frame[64];  // One local query row: 8 heads * 8 packed output words.
 #pragma HLS BIND_STORAGE variable = frame type = ram_t2p impl = bram
     for (int token = 0; token < 16; ++token) {
       for (int word = 0; word < 64; ++word) {
@@ -292,7 +157,7 @@ void store_output(hls::stream<qo_pack_t> &words,
       }
 }
 template <int Lane>
-void run_lane_front(
+void run_lane_front(  // Query loading, active forwarding, K/V ownership and canonical QK.
     const qo_pack_t *query,
     hls::stream<kv_pair_pack_t> &active_even,
     hls::stream<kv_pair_pack_t> &active_odd,
@@ -304,8 +169,8 @@ void run_lane_front(
 #pragma HLS INLINE off
 #pragma HLS DATAFLOW
   hls::stream<QPair> q0("q0"), q1("q1"), q2("q2"), q3("q3");
-  hls::stream<bool> ready("ready");
-  hls::stream<cache_line_t> forwarded("forwarded");
+  hls::stream<bool> ready("ready");  // Retained compatibility stream; unused by the active producer/consumer.
+  hls::stream<cache_line_t> forwarded("forwarded");  // Preserves install-and-forward ordering into the lane owner.
   hls::stream<DimensionKPacket> keys("keys");
 #pragma HLS STREAM variable = q0 depth = 8
 #pragma HLS STREAM variable = q1 depth = 8
@@ -328,7 +193,7 @@ void run_lane_front(
       q0, q1, q2, q3, keys, scores, plan.batches, plan.sequences,
       plan.context_start, plan.qk_actions, round_qk_bf16);
 }
-void run_lane_back(
+void run_lane_back(  // Weighted values, final reciprocal normalization, then stores.
     hls::stream<DimensionVPacket> &values,
     hls::stream<Scale> &scales,
     hls::stream<Denominator> &denominators, qo_pack_t *output,
@@ -336,8 +201,8 @@ void run_lane_back(
     bool prefill_physical_frame) {
 #pragma HLS INLINE off
 #pragma HLS DATAFLOW
-  hls::stream<DimensionAccPacket> accumulators("accumulators");
-  hls::stream<qo_pack_t> normalized("normalized");
+  hls::stream<DimensionAccPacket> accumulators("accumulators");  // Keep accumulation separate from final normalization.
+  hls::stream<qo_pack_t> normalized("normalized");  // The selected FIFO holds a full local query row.
 #pragma HLS STREAM variable = accumulators depth = 2
 #pragma HLS STREAM variable = normalized depth = 64
 #pragma HLS BIND_STORAGE variable = normalized type = fifo impl = bram
@@ -349,7 +214,7 @@ void run_lane_back(
   store_output(normalized, output, plan.batches, plan.sequences, total_seqlen,
                tile_start, prefill_physical_frame);
 }
-void run_tile(
+void run_tile(  // Preserve the selected four-lane DATAFLOW network and FIFO capacities.
     const qo_pack_t *q0, const qo_pack_t *q1,
     const qo_pack_t *q2, const qo_pack_t *q3,
     const kv_pair_pack_t *active, cache_line_t *cache0,
@@ -464,8 +329,8 @@ extern "C" void llama3_fast_attention(
   if (status != FATTN_STATUS_OK) { status_out[0] = status; return; }
   const bool prefill_physical_frame =
       batch == 2 && sequence == 8 && start == 0 && valid == 0 &&
-      mask == FATTN_MASK_CAUSAL;
-  const int semantic_work_extent = sequence;
+      mask == FATTN_MASK_CAUSAL;  // This guard selects packing/burst staging, not different attention.
+  const int semantic_work_extent = sequence;  // Host rows are covered by bounded local tiles.
   for (int tile = 0; tile < semantic_work_extent;
        tile += FATTN_TILE_TOKENS) {
     const int count = sequence - tile < FATTN_TILE_TOKENS
